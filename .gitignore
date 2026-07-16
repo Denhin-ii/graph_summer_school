@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .streamlit/secrets.toml
+.streamlit/cookie_secret.txt
 .env
 .env.*
 ~$*.xlsx

@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-set "BOOTSTRAP_PYTHON=%LocalAppData%\Python\pythoncore-3.14-64\python.exe"
+set "BOOTSTRAP_PYTHON=%LocalAppData%\Programs\Python\Python313\python.exe"
 if not exist "%BOOTSTRAP_PYTHON%" set "BOOTSTRAP_PYTHON=python"
 
 if not exist ".venv\Scripts\python.exe" (
@@ -11,6 +11,15 @@ if not exist ".venv\Scripts\python.exe" (
     if errorlevel 1 goto :error
 )
 
+if not exist ".streamlit" mkdir ".streamlit"
+if not exist ".streamlit\cookie_secret.txt" (
+    echo Generating local Streamlit cookie secret...
+    ".venv\Scripts\python.exe" -c "import pathlib,secrets; pathlib.Path(r'.streamlit\cookie_secret.txt').write_text(secrets.token_urlsafe(48), encoding='ascii')"
+    if errorlevel 1 goto :error
+)
+set /p "STREAMLIT_SERVER_COOKIE_SECRET="<".streamlit\cookie_secret.txt"
+if not defined STREAMLIT_SERVER_COOKIE_SECRET goto :error
+
 ".venv\Scripts\python.exe" -c "import numpy, networkx, openpyxl, plotly, streamlit" >nul 2>&1
 if errorlevel 1 (
     echo Installing dependencies...
@@ -18,7 +27,7 @@ if errorlevel 1 (
     if errorlevel 1 goto :error
 )
 
-".venv\Scripts\python.exe" -m streamlit run app.py
+".venv\Scripts\python.exe" -m streamlit run app.py --server.address=127.0.0.1 --server.enableCORS=true --server.enableXsrfProtection=true
 if errorlevel 1 goto :error
 exit /b 0
 
