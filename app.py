@@ -184,7 +184,7 @@ def graph_figure(graph: nx.DiGraph) -> go.Figure:
                     "text": "",
                     "showarrow": True,
                     "arrowhead": 3,
-                    "arrowsize": 0.8,
+                    "arrowsize": 2,
                     "arrowwidth": width,
                     "arrowcolor": color,
                 }
