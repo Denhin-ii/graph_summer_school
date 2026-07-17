@@ -540,19 +540,29 @@ export default function(component) {
     return bestGeometry;
   }
 
-  function edgeLabelPosition(geometry, occupiedLabels) {
+  function distanceToGeometry(point, geometry) {
+    let distance = Number.POSITIVE_INFINITY;
+    for (let step = 0; step <= 32; step += 1) {
+      const curvePoint = quadraticPoint(geometry.start, geometry.control, geometry.end, step / 32);
+      distance = Math.min(distance, Math.hypot(point.x - curvePoint.x, point.y - curvePoint.y));
+    }
+    return distance;
+  }
+
+  function edgeLabelPosition(geometry, occupiedLabels, allGeometries) {
     const candidates = [];
-    for (const t of [0.5, 0.4, 0.6, 0.3, 0.7]) {
-      const point = quadraticPoint(geometry.start, geometry.control, geometry.end, t);
-      const tangentX = 2 * (1 - t) * (geometry.control.x - geometry.start.x)
-        + 2 * t * (geometry.end.x - geometry.control.x);
-      const tangentY = 2 * (1 - t) * (geometry.control.y - geometry.start.y)
-        + 2 * t * (geometry.end.y - geometry.control.y);
-      const tangentLength = Math.max(Math.hypot(tangentX, tangentY), 0.001);
-      const offsets = geometry.labelSide
-        ? [20, 36, 52, 68].map((offset) => offset * geometry.labelSide)
-        : [20, -20, 36, -36, 52, -52];
-      for (const offset of offsets) {
+    const offsets = geometry.labelSide
+      ? [20, 28, 36, 48, 60].map((offset) => offset * geometry.labelSide)
+      : [20, -20, 28, -28, 36, -36, 48, -48, 60, -60];
+    const positionsAlongEdge = [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7, 0.25, 0.75];
+    for (const offset of offsets) {
+      for (const t of positionsAlongEdge) {
+        const point = quadraticPoint(geometry.start, geometry.control, geometry.end, t);
+        const tangentX = 2 * (1 - t) * (geometry.control.x - geometry.start.x)
+          + 2 * t * (geometry.end.x - geometry.control.x);
+        const tangentY = 2 * (1 - t) * (geometry.control.y - geometry.start.y)
+          + 2 * t * (geometry.end.y - geometry.control.y);
+        const tangentLength = Math.max(Math.hypot(tangentX, tangentY), 0.001);
         candidates.push({
           x: point.x - tangentY / tangentLength * offset,
           y: point.y + tangentX / tangentLength * offset,
@@ -571,12 +581,18 @@ export default function(component) {
       const labelClearance = occupiedLabels.length
         ? Math.min(...occupiedLabels.map((label) => Math.hypot(candidate.x - label.x, candidate.y - label.y)))
         : Number.POSITIVE_INFINITY;
-      const clearance = Math.min(nodeClearance, labelClearance - 64);
+      const edgeClearance = Math.min(
+        ...allGeometries
+          .filter((otherGeometry) => otherGeometry !== geometry)
+          .map((otherGeometry) => distanceToGeometry(candidate, otherGeometry)),
+        Number.POSITIVE_INFINITY,
+      );
+      const clearance = Math.min(nodeClearance, labelClearance - 64, edgeClearance - 30);
       if (clearance > bestClearance) {
         best = candidate;
         bestClearance = clearance;
       }
-      if (nodeClearance >= 24 && labelClearance >= 64) return candidate;
+      if (nodeClearance >= 24 && labelClearance >= 64 && edgeClearance >= 30) return candidate;
     }
     return best;
   }
@@ -585,8 +601,8 @@ export default function(component) {
     clearLayer(edgesLayer);
     const occupiedLabels = [];
     const reciprocalPlans = new Map();
-    edges.forEach((edge, index) => {
-      if (!nodes.has(edge.source) || !nodes.has(edge.target)) return;
+    const edgeLayouts = edges.map((edge, index) => {
+      if (!nodes.has(edge.source) || !nodes.has(edge.target)) return null;
       let reciprocalPlan = { curved: false, side: 1 };
       if (edge.reciprocal) {
         const pairKey = reciprocalPairKey(edge);
@@ -595,7 +611,10 @@ export default function(component) {
         }
         reciprocalPlan = reciprocalPlans.get(pairKey);
       }
-      const geometry = edgeGeometry(edge, reciprocalPlan);
+      return { edge, index, geometry: edgeGeometry(edge, reciprocalPlan) };
+    }).filter(Boolean);
+    const allGeometries = edgeLayouts.map((layout) => layout.geometry);
+    edgeLayouts.forEach(({ edge, index, geometry }) => {
       const color = edge.zero ? "#7A7F87" : edge.color;
       const width = edge.bold ? 5 : 2;
       const group = svgElement("g", {
@@ -642,7 +661,7 @@ export default function(component) {
         path.setAttribute("marker-end", `url(#${markerId})`);
       }
 
-      const labelPosition = edgeLabelPosition(geometry, occupiedLabels);
+      const labelPosition = edgeLabelPosition(geometry, occupiedLabels, allGeometries);
       occupiedLabels.push(labelPosition);
       const label = svgElement("text", {
         x: labelPosition.x,
