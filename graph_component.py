@@ -431,7 +431,11 @@ export default function(component) {
     return clearance;
   }
 
-  function edgeGeometry(edge) {
+  function reciprocalPairKey(edge) {
+    return [edge.source, edge.target].sort().join("\u0000");
+  }
+
+  function chooseReciprocalSide(edge) {
     const source = screenPosition(nodes.get(edge.source));
     const target = screenPosition(nodes.get(edge.target));
     const dx = target.x - source.x;
@@ -439,10 +443,46 @@ export default function(component) {
     const distance = Math.max(Math.hypot(dx, dy), 0.001);
     const normalX = -dy / distance;
     const normalY = dx / distance;
-    const baseOffset = edge.reciprocal ? 38 : 0;
+    const directionFactor = edge.source.localeCompare(edge.target) <= 0 ? 1 : -1;
+    let bestSide = 1;
+    let bestClearance = -1;
+    for (const side of [1, -1]) {
+      const geometry = geometryWithOffset(
+        source,
+        target,
+        normalX,
+        normalY,
+        side * directionFactor * 54,
+      );
+      const clearance = edgeClearance(geometry, edge);
+      if (clearance > bestClearance) {
+        bestSide = side;
+        bestClearance = clearance;
+      }
+    }
+    return bestSide;
+  }
+
+  function edgeGeometry(edge, reciprocalSide = 1) {
+    const source = screenPosition(nodes.get(edge.source));
+    const target = screenPosition(nodes.get(edge.target));
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.max(Math.hypot(dx, dy), 0.001);
+    const normalX = -dy / distance;
+    const normalY = dx / distance;
+    const directionFactor = edge.source.localeCompare(edge.target) <= 0 ? 1 : -1;
+    const reciprocalLane = directionFactor > 0 ? 38 : 68;
+    const baseOffset = edge.reciprocal
+      ? reciprocalSide * directionFactor * reciprocalLane
+      : 0;
     const offsets = [baseOffset];
-    for (let distance = 60; distance <= 300; distance += 60) {
-      offsets.push(baseOffset + distance, baseOffset - distance);
+    for (let extra = 60; extra <= 300; extra += 60) {
+      if (edge.reciprocal) {
+        offsets.push(reciprocalSide * directionFactor * (reciprocalLane + extra));
+      } else {
+        offsets.push(extra, -extra);
+      }
     }
     let bestGeometry = null;
     let bestClearance = -1;
@@ -499,9 +539,18 @@ export default function(component) {
   function drawEdges() {
     clearLayer(edgesLayer);
     const occupiedLabels = [];
+    const reciprocalSides = new Map();
     edges.forEach((edge, index) => {
       if (!nodes.has(edge.source) || !nodes.has(edge.target)) return;
-      const geometry = edgeGeometry(edge);
+      let reciprocalSide = 1;
+      if (edge.reciprocal) {
+        const pairKey = reciprocalPairKey(edge);
+        if (!reciprocalSides.has(pairKey)) {
+          reciprocalSides.set(pairKey, chooseReciprocalSide(edge));
+        }
+        reciprocalSide = reciprocalSides.get(pairKey);
+      }
+      const geometry = edgeGeometry(edge, reciprocalSide);
       const color = edge.zero ? "#7A7F87" : edge.color;
       const width = edge.bold ? 5 : 2;
       const group = svgElement("g", {
