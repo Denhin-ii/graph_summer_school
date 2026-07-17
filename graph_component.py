@@ -43,8 +43,8 @@ GRAPH_EDITOR_HTML = """
     <label>Размер вершин <output class="graph-node-scale-value">100%</output>
       <input class="graph-node-scale" type="range" min="0.6" max="2" step="0.1" value="1" />
     </label>
-    <label>Интервал вершин <output class="graph-node-spacing-value">194</output>
-      <input class="graph-node-spacing" type="range" min="60" max="500" step="10" value="194" />
+    <label>Интервал вершин <output class="graph-node-spacing-value">300</output>
+      <input class="graph-node-spacing" type="range" min="60" max="500" step="10" value="300" />
     </label>
   </div>
   <svg class="graph-editor-canvas" viewBox="0 0 1100 650" role="application"
@@ -358,7 +358,7 @@ export default function(component) {
   let edgeTextScale = Number(svg.dataset.edgeTextScale || 1);
   let lineScale = Number(svg.dataset.lineScale || 1);
   let nodeScale = Number(svg.dataset.nodeScale || 1);
-  let nodeSpacing = Number(svg.dataset.nodeSpacing || data.nodeSpacing || 194);
+  let nodeSpacing = Number(svg.dataset.nodeSpacing || data.nodeSpacing || 300);
   if (focusedNodeId && !nodes.has(focusedNodeId)) focusedNodeId = null;
 
   function currentNodeRadius() {
