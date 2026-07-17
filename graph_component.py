@@ -366,8 +366,8 @@ export default function(component) {
   let lineScale = Number(svg.dataset.lineScale || 1);
   let nodeScale = Number(svg.dataset.nodeScale || 1);
   let nodeSpacing = Number(svg.dataset.nodeSpacing || data.nodeSpacing || 250);
-  const labelModes = ["label", "code", "text"];
-  let labelMode = labelModes.includes(svg.dataset.labelMode) ? svg.dataset.labelMode : "label";
+  const labelModes = ["id", "code", "text"];
+  let labelMode = labelModes.includes(svg.dataset.labelMode) ? svg.dataset.labelMode : "id";
   if (focusedNodeId && !nodes.has(focusedNodeId)) focusedNodeId = null;
 
   function currentNodeRadius() {
@@ -375,13 +375,13 @@ export default function(component) {
   }
 
   function displayedNodeLabel(node) {
+    if (labelMode === "id") return node.id;
     if (labelMode === "code") return node.code || node.id;
-    if (labelMode === "label") return node.label || node.id;
     return node.text || node.label || node.id;
   }
 
   function applyLabelMode() {
-    const modeNames = { label: "индексы", code: "коды", text: "описание" };
+    const modeNames = { id: "индексы", code: "коды", text: "описание" };
     toggleLabelsButton.textContent = `Названия: ${modeNames[labelMode]}`;
     toggleLabelsButton.setAttribute("aria-pressed", String(labelMode !== "text"));
     svg.dataset.labelMode = labelMode;
