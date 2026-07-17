@@ -186,6 +186,7 @@ const MAX_NODE_COORDINATE = 2;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3;
 const FIT_PADDING = 70;
+const MIN_EDGE_LABEL_DISTANCE = 48;
 
 function svgElement(name, attributes = {}) {
   const element = document.createElementNS(SVG_NS, name);
@@ -551,10 +552,7 @@ export default function(component) {
 
   function edgeLabelPosition(geometry, occupiedLabels, allGeometries) {
     const candidates = [];
-    const offsetMagnitudes = [18, 24, 30, 36, 48, 60, 72, 88, 104, 120, 140, 160];
-    for (let index = 0; index <= occupiedLabels.length; index += 1) {
-      offsetMagnitudes.push(200 + index * 76);
-    }
+    const offsetMagnitudes = [18, 24, 30, 36, 48, 60, 72, 88];
     const offsets = geometry.labelSide
       ? offsetMagnitudes.map((offset) => offset * geometry.labelSide)
       : offsetMagnitudes.flatMap((offset) => [offset, -offset]);
@@ -588,7 +586,7 @@ export default function(component) {
       const labelClearance = occupiedLabels.length
         ? Math.min(...occupiedLabels.map((label) => Math.hypot(candidate.x - label.x, candidate.y - label.y)))
         : Number.POSITIVE_INFINITY;
-      if (labelClearance < 72) continue;
+      if (labelClearance < MIN_EDGE_LABEL_DISTANCE) continue;
       const edgeClearance = Math.min(
         ...allGeometries
           .filter((otherGeometry) => otherGeometry !== geometry)
@@ -608,7 +606,7 @@ export default function(component) {
       }
       if (
         nodeClearance >= 24
-        && labelClearance >= 72
+        && labelClearance >= MIN_EDGE_LABEL_DISTANCE
         && edgeClearance >= 26
         && associationMargin >= 12
       ) return candidate;
