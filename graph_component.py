@@ -21,7 +21,7 @@ GRAPH_EDITOR_HTML = """
     <button type="button" class="graph-zoom-out" title="Уменьшить" aria-label="Уменьшить">−</button>
     <span class="graph-zoom-value" aria-live="polite">100%</span>
     <button type="button" class="graph-zoom-in" title="Увеличить" aria-label="Увеличить">+</button>
-    <button type="button" class="graph-reset-view" title="Сбросить масштаб и сдвиг">Сбросить вид</button>
+    <button type="button" class="graph-reset-view" title="Показать весь граф">Весь граф</button>
     <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
             aria-pressed="true">Сетка: вкл.</button>
   </div>
@@ -175,6 +175,9 @@ const LABEL_LINE_LENGTH = 11;
 const LABEL_MAX_LINES = 4;
 const MIN_NODE_COORDINATE = -1;
 const MAX_NODE_COORDINATE = 2;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 3;
+const FIT_PADDING = 70;
 
 function svgElement(name, attributes = {}) {
   const element = document.createElementNS(SVG_NS, name);
@@ -284,13 +287,41 @@ export default function(component) {
   }
 
   function setZoom(nextZoom, centerX = WIDTH / 2, centerY = HEIGHT / 2) {
-    const boundedZoom = Math.max(0.5, Math.min(3, nextZoom));
+    const boundedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
     if (Math.abs(boundedZoom - zoom) < 0.0001) return;
     const contentX = (centerX - panX) / zoom;
     const contentY = (centerY - panY) / zoom;
     panX = centerX - contentX * boundedZoom;
     panY = centerY - contentY * boundedZoom;
     zoom = boundedZoom;
+    applyView();
+  }
+
+  function fitGraphToView() {
+    if (!nodes.size) {
+      zoom = 1;
+      panX = 0;
+      panY = 0;
+      applyView();
+      return;
+    }
+    const points = Array.from(nodes.values(), screenPosition);
+    const minX = Math.min(...points.map((point) => point.x)) - NODE_RADIUS;
+    const maxX = Math.max(...points.map((point) => point.x)) + NODE_RADIUS;
+    const minY = Math.min(...points.map((point) => point.y)) - NODE_RADIUS;
+    const maxY = Math.max(...points.map((point) => point.y)) + NODE_RADIUS;
+    const contentWidth = Math.max(maxX - minX, 1);
+    const contentHeight = Math.max(maxY - minY, 1);
+    zoom = Math.max(
+      MIN_ZOOM,
+      Math.min(
+        MAX_ZOOM,
+        (WIDTH - 2 * FIT_PADDING) / contentWidth,
+        (HEIGHT - 2 * FIT_PADDING) / contentHeight,
+      ),
+    );
+    panX = WIDTH / 2 - ((minX + maxX) / 2) * zoom;
+    panY = HEIGHT / 2 - ((minY + maxY) / 2) * zoom;
     applyView();
   }
 
@@ -545,12 +576,7 @@ export default function(component) {
   svg.addEventListener("pointercancel", finishDrag);
   zoomOutButton.onclick = () => setZoom(zoom / 1.25);
   zoomInButton.onclick = () => setZoom(zoom * 1.25);
-  resetViewButton.onclick = () => {
-    zoom = 1;
-    panX = 0;
-    panY = 0;
-    applyView();
-  };
+  resetViewButton.onclick = fitGraphToView;
   toggleGridButton.onclick = () => {
     gridVisible = !gridVisible;
     applyGridVisibility();
