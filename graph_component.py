@@ -388,15 +388,15 @@ export default function(component) {
     while (layer.firstChild) layer.removeChild(layer.firstChild);
   }
 
-  function edgeGeometry(edge) {
-    const source = screenPosition(nodes.get(edge.source));
-    const target = screenPosition(nodes.get(edge.target));
-    const dx = target.x - source.x;
-    const dy = target.y - source.y;
-    const distance = Math.max(Math.hypot(dx, dy), 0.001);
-    const normalX = -dy / distance;
-    const normalY = dx / distance;
-    const offset = edge.reciprocal ? 38 : 0;
+  function quadraticPoint(start, control, end, t) {
+    const oneMinusT = 1 - t;
+    return {
+      x: oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * control.x + t * t * end.x,
+      y: oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * control.y + t * t * end.y,
+    };
+  }
+
+  function geometryWithOffset(source, target, normalX, normalY, offset) {
     const control = {
       x: (source.x + target.x) / 2 + normalX * offset,
       y: (source.y + target.y) / 2 + normalY * offset,
@@ -405,19 +405,100 @@ export default function(component) {
     const endVector = { x: target.x - control.x, y: target.y - control.y };
     const startLength = Math.max(Math.hypot(startVector.x, startVector.y), 0.001);
     const endLength = Math.max(Math.hypot(endVector.x, endVector.y), 0.001);
-    const start = {
-      x: source.x + NODE_RADIUS * startVector.x / startLength,
-      y: source.y + NODE_RADIUS * startVector.y / startLength,
+    return {
+      start: {
+        x: source.x + NODE_RADIUS * startVector.x / startLength,
+        y: source.y + NODE_RADIUS * startVector.y / startLength,
+      },
+      control,
+      end: {
+        x: target.x - NODE_RADIUS * endVector.x / endLength,
+        y: target.y - NODE_RADIUS * endVector.y / endLength,
+      },
     };
-    const end = {
-      x: target.x - NODE_RADIUS * endVector.x / endLength,
-      y: target.y - NODE_RADIUS * endVector.y / endLength,
-    };
-    return { start, control, end, normalX, normalY };
+  }
+
+  function edgeClearance(geometry, edge) {
+    let clearance = Number.POSITIVE_INFINITY;
+    for (const [nodeId, node] of nodes) {
+      if (nodeId === edge.source || nodeId === edge.target) continue;
+      const center = screenPosition(node);
+      for (let step = 1; step < 24; step += 1) {
+        const point = quadraticPoint(geometry.start, geometry.control, geometry.end, step / 24);
+        clearance = Math.min(clearance, Math.hypot(point.x - center.x, point.y - center.y));
+      }
+    }
+    return clearance;
+  }
+
+  function edgeGeometry(edge) {
+    const source = screenPosition(nodes.get(edge.source));
+    const target = screenPosition(nodes.get(edge.target));
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.max(Math.hypot(dx, dy), 0.001);
+    const normalX = -dy / distance;
+    const normalY = dx / distance;
+    const baseOffset = edge.reciprocal ? 38 : 0;
+    const offsets = [baseOffset];
+    for (let distance = 60; distance <= 300; distance += 60) {
+      offsets.push(baseOffset + distance, baseOffset - distance);
+    }
+    let bestGeometry = null;
+    let bestClearance = -1;
+    for (const offset of offsets) {
+      const geometry = geometryWithOffset(source, target, normalX, normalY, offset);
+      const clearance = edgeClearance(geometry, edge);
+      if (clearance > bestClearance) {
+        bestGeometry = geometry;
+        bestClearance = clearance;
+      }
+      if (clearance >= NODE_RADIUS + 16) return geometry;
+    }
+    return bestGeometry;
+  }
+
+  function edgeLabelPosition(geometry, occupiedLabels) {
+    const candidates = [];
+    for (const t of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+      const point = quadraticPoint(geometry.start, geometry.control, geometry.end, t);
+      const tangentX = 2 * (1 - t) * (geometry.control.x - geometry.start.x)
+        + 2 * t * (geometry.end.x - geometry.control.x);
+      const tangentY = 2 * (1 - t) * (geometry.control.y - geometry.start.y)
+        + 2 * t * (geometry.end.y - geometry.control.y);
+      const tangentLength = Math.max(Math.hypot(tangentX, tangentY), 0.001);
+      for (const offset of [20, -20, 36, -36, 52, -52]) {
+        candidates.push({
+          x: point.x - tangentY / tangentLength * offset,
+          y: point.y + tangentX / tangentLength * offset,
+        });
+      }
+    }
+    let best = candidates[0];
+    let bestClearance = -1;
+    for (const candidate of candidates) {
+      const nodeClearance = Math.min(
+        ...Array.from(nodes.values(), (node) => {
+          const center = screenPosition(node);
+          return Math.hypot(candidate.x - center.x, candidate.y - center.y) - NODE_RADIUS;
+        }),
+      );
+      const labelClearance = occupiedLabels.length
+        ? Math.min(...occupiedLabels.map((label) => Math.hypot(candidate.x - label.x, candidate.y - label.y)))
+        : Number.POSITIVE_INFINITY;
+      const clearance = Math.min(nodeClearance, labelClearance - 64);
+      if (clearance > bestClearance) {
+        best = candidate;
+        bestClearance = clearance;
+      }
+      if (nodeClearance >= 24 && labelClearance >= 64) return candidate;
+    }
+    return best;
   }
 
   function drawEdges() {
     clearLayer(edgesLayer);
+    const occupiedLabels = [];
     edges.forEach((edge, index) => {
       if (!nodes.has(edge.source) || !nodes.has(edge.target)) return;
       const geometry = edgeGeometry(edge);
@@ -467,11 +548,11 @@ export default function(component) {
         path.setAttribute("marker-end", `url(#${markerId})`);
       }
 
-      const midX = 0.25 * geometry.start.x + 0.5 * geometry.control.x + 0.25 * geometry.end.x;
-      const midY = 0.25 * geometry.start.y + 0.5 * geometry.control.y + 0.25 * geometry.end.y;
+      const labelPosition = edgeLabelPosition(geometry, occupiedLabels);
+      occupiedLabels.push(labelPosition);
       const label = svgElement("text", {
-        x: midX + geometry.normalX * 18,
-        y: midY + geometry.normalY * 18,
+        x: labelPosition.x,
+        y: labelPosition.y,
         fill: color,
         class: "graph-edge-label",
       });
