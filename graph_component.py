@@ -552,8 +552,8 @@ export default function(component) {
   function edgeLabelPosition(geometry, occupiedLabels, allGeometries) {
     const candidates = [];
     const offsets = geometry.labelSide
-      ? [20, 28, 36, 48, 60].map((offset) => offset * geometry.labelSide)
-      : [20, -20, 28, -28, 36, -36, 48, -48, 60, -60];
+      ? [18, 24, 30, 36, 48, 60].map((offset) => offset * geometry.labelSide)
+      : [18, -18, 24, -24, 30, -30, 36, -36, 48, -48, 60, -60];
     const positionsAlongEdge = [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7, 0.25, 0.75];
     for (const offset of offsets) {
       for (const t of positionsAlongEdge) {
@@ -587,12 +587,24 @@ export default function(component) {
           .map((otherGeometry) => distanceToGeometry(candidate, otherGeometry)),
         Number.POSITIVE_INFINITY,
       );
-      const clearance = Math.min(nodeClearance, labelClearance - 64, edgeClearance - 30);
+      const ownEdgeDistance = distanceToGeometry(candidate, geometry);
+      const associationMargin = edgeClearance - ownEdgeDistance;
+      const clearance = Math.min(
+        nodeClearance,
+        labelClearance - 64,
+        edgeClearance - 26,
+        associationMargin - 12,
+      );
       if (clearance > bestClearance) {
         best = candidate;
         bestClearance = clearance;
       }
-      if (nodeClearance >= 24 && labelClearance >= 64 && edgeClearance >= 30) return candidate;
+      if (
+        nodeClearance >= 24
+        && labelClearance >= 64
+        && edgeClearance >= 26
+        && associationMargin >= 12
+      ) return candidate;
     }
     return best;
   }
