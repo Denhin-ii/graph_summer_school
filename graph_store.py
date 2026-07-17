@@ -76,16 +76,21 @@ def add_connection(
     bidirectional: bool = False,
     reverse_weight: Any | None = None,
     bold: bool = False,
+    reverse_bold: bool = False,
 ) -> None:
     if source not in graph or target not in graph:
         raise GraphWorkbookError("Сначала создайте обе вершины связи.")
     if source == target:
         raise GraphWorkbookError("Связь вершины с самой собой пока не поддерживается.")
-    edge_bold = validate_bold(bold)
-    graph.add_edge(source, target, weight=validate_weight(forward_weight), bold=edge_bold)
+    graph.add_edge(source, target, weight=validate_weight(forward_weight), bold=validate_bold(bold))
     if bidirectional:
         reverse = forward_weight if reverse_weight is None else reverse_weight
-        graph.add_edge(target, source, weight=validate_weight(reverse), bold=edge_bold)
+        graph.add_edge(
+            target,
+            source,
+            weight=validate_weight(reverse),
+            bold=validate_bold(reverse_bold),
+        )
 
 
 def graph_to_excel_bytes(graph: nx.DiGraph) -> bytes:

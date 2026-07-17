@@ -4,8 +4,9 @@ import math
 from pathlib import Path
 
 import networkx as nx
-import plotly.graph_objects as go
 import streamlit as st
+
+from graph_component import apply_position_updates, render_draggable_graph
 
 from graph_store import (
     DEFAULT_NODE_COLOR,
@@ -22,7 +23,7 @@ from graph_store import (
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DATABASE = APP_DIR / "graph_database.xlsx"
-ZERO_EDGE_COLOR = "#7A7F87"\
+GRAPH_COMPONENT_KEY = "draggable_graph"
 
 
 def initialize_state() -> None:
@@ -57,15 +58,6 @@ def ensure_node_colors(graph: nx.DiGraph) -> None:
         except GraphWorkbookError:
             color = default
         graph.nodes[node_id]["color"] = color
-
-
-def contrast_text_color(color: str) -> str:
-    normalized = validate_color(color)
-    red = int(normalized[1:3], 16)
-    green = int(normalized[3:5], 16)
-    blue = int(normalized[5:7], 16)
-    luminance = 0.299 * red + 0.587 * green + 0.114 * blue
-    return "#17212B" if luminance >= 155 else "#FFFFFF"
 
 
 def add_node(graph: nx.DiGraph, label: str, color: str = DEFAULT_NODE_COLOR) -> None:
@@ -107,135 +99,6 @@ def normalize(value: float, minimum: float, maximum: float) -> float:
     if math.isclose(minimum, maximum):
         return 0.5
     return 0.08 + 0.84 * (value - minimum) / (maximum - minimum)
-
-
-def quadratic_point(
-    start: tuple[float, float],
-    control: tuple[float, float],
-    end: tuple[float, float],
-    t: float,
-) -> tuple[float, float]:
-    remaining = 1.0 - t
-    return (
-        remaining * remaining * start[0] + 2.0 * remaining * t * control[0] + t * t * end[0],
-        remaining * remaining * start[1] + 2.0 * remaining * t * control[1] + t * t * end[1],
-    )
-
-
-def graph_figure(graph: nx.DiGraph) -> go.Figure:
-    ensure_positions(graph)
-    ensure_node_colors(graph)
-    figure = go.Figure()
-    shapes: list[dict] = []
-    annotations: list[dict] = []
-
-    for source, target, attrs in graph.edges(data=True):
-        x1 = float(graph.nodes[source]["x"])
-        y1 = float(graph.nodes[source]["y"])
-        x2 = float(graph.nodes[target]["x"])
-        y2 = float(graph.nodes[target]["y"])
-        dx, dy = x2 - x1, y2 - y1
-        distance = max(math.hypot(dx, dy), 0.001)
-        normal_x, normal_y = -dy / distance, dx / distance
-        offset = 0.055 if graph.has_edge(target, source) else 0.0
-        curve_x = (x1 + x2) / 2 + normal_x * offset
-        curve_y = (y1 + y2) / 2 + normal_y * offset
-        control = (curve_x, curve_y)
-        node_radius = 0.052
-        start_tangent = (curve_x - x1, curve_y - y1)
-        end_tangent = (x2 - curve_x, y2 - curve_y)
-        start_length = max(math.hypot(*start_tangent), 0.001)
-        end_length = max(math.hypot(*end_tangent), 0.001)
-        start = (
-            x1 + node_radius * start_tangent[0] / start_length,
-            y1 + node_radius * start_tangent[1] / start_length,
-        )
-        end = (
-            x2 - node_radius * end_tangent[0] / end_length,
-            y2 - node_radius * end_tangent[1] / end_length,
-        )
-        weight = float(attrs.get("weight", 0.0))
-        is_zero = math.isclose(weight, 0.0, abs_tol=1e-12)
-        color = ZERO_EDGE_COLOR if is_zero else validate_color(
-            graph.nodes[target].get("color", DEFAULT_NODE_COLOR)
-        )
-        width = 5.0 if bool(attrs.get("bold", False)) else 2.0
-        shapes.append(
-            {
-                "type": "path",
-                "path": f"M {start[0]},{start[1]} Q {control[0]},{control[1]} {end[0]},{end[1]}",
-                "line": {"color": color, "width": width, "dash": "solid"},
-                "layer": "below",
-            }
-        )
-        if not is_zero:
-            arrow_start = quadratic_point(start, control, end, 0.91)
-            arrow_end = quadratic_point(start, control, end, 1.0)
-            annotations.append(
-                {
-                    "x": arrow_end[0],
-                    "y": arrow_end[1],
-                    "ax": arrow_start[0],
-                    "ay": arrow_start[1],
-                    "xref": "x",
-                    "yref": "y",
-                    "axref": "x",
-                    "ayref": "y",
-                    "text": "",
-                    "showarrow": True,
-                    "arrowhead": 3,
-                    "arrowsize": 2,
-                    "arrowwidth": width,
-                    "arrowcolor": color,
-                }
-            )
-        label_point = quadratic_point(start, control, end, 0.5)
-        annotations.append(
-            {
-                "x": label_point[0] + normal_x * 0.025,
-                "y": label_point[1] + normal_y * 0.025,
-                "text": f"<b>{weight:+.2f}</b>",
-                "showarrow": False,
-                "font": {"size": 12, "color": color},
-                "bgcolor": "rgba(255,255,255,0.82)",
-                "borderpad": 2,
-            }
-        )
-
-    node_ids = list(graph.nodes)
-    node_labels = [str(graph.nodes[node].get("label", node)) for node in node_ids]
-    node_colors = [validate_color(graph.nodes[node].get("color", DEFAULT_NODE_COLOR)) for node in node_ids]
-    node_text_colors = [contrast_text_color(color) for color in node_colors]
-    if node_ids:
-        figure.add_trace(
-            go.Scatter(
-                x=[float(graph.nodes[node]["x"]) for node in node_ids],
-                y=[float(graph.nodes[node]["y"]) for node in node_ids],
-                mode="markers+text",
-                text=node_labels,
-                textposition="middle center",
-                customdata=node_ids,
-                hovertemplate="<b>%{text}</b><br>ID: %{customdata}<extra></extra>",
-                marker={"size": 62, "color": node_colors, "line": {"color": "#243B53", "width": 2}},
-                textfont={"size": 11, "color": node_text_colors},
-                name="Вершины",
-            )
-        )
-
-    figure.update_layout(
-        height=650,
-        margin={"l": 15, "r": 15, "t": 15, "b": 15},
-        showlegend=False,
-        shapes=shapes,
-        annotations=annotations,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#f7f9fc",
-        xaxis={"range": [-0.05, 1.05], "visible": False, "fixedrange": True},
-        yaxis={"range": [-0.05, 1.05], "visible": False, "fixedrange": True, "scaleanchor": "x", "scaleratio": 1},
-        hovermode="closest",
-        dragmode="pan",
-    )
-    return figure
 
 
 def node_option(graph: nx.DiGraph, node_id: str) -> str:
@@ -301,7 +164,11 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                     "Вес обратно", min_value=-1.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
                     disabled=connection_type.startswith("Односторонняя"),
                 )
-                bold_arrow = st.checkbox("Жирная стрелка")
+                bold_arrow = st.checkbox("Жирная стрелка вперёд")
+                reverse_bold_arrow = st.checkbox(
+                    "Жирная стрелка обратно",
+                    disabled=connection_type.startswith("Односторонняя"),
+                )
                 submitted = st.form_submit_button("Добавить / обновить связь", width="stretch")
                 if submitted:
                     source = node_id_from_option(source_option)
@@ -312,10 +179,16 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                             source,
                             target,
                             forward_weight,
-                            bidirectional=connection_type.startswith("Двусторонняя"),
-                            reverse_weight=reverse_weight,
                             bold=bold_arrow,
                         )
+                        if connection_type.startswith("Двусторонняя"):
+                            add_connection(
+                                graph,
+                                target,
+                                source,
+                                reverse_weight,
+                                bold=reverse_bold_arrow,
+                            )
                     except GraphWorkbookError as exc:
                         st.error(str(exc))
                     else:
@@ -390,8 +263,17 @@ def render_main(graph: nx.DiGraph) -> None:
 
     st.info(st.session_state.status)
     if graph:
-        st.plotly_chart(graph_figure(graph), width="stretch", config={"displayModeBar": False})
-        st.caption("Ненулевая стрелка окрашена в цвет вершины назначения · нулевая связь серая и без наконечника")
+        ensure_positions(graph)
+        ensure_node_colors(graph)
+        render_draggable_graph(
+            graph,
+            key=GRAPH_COMPONENT_KEY,
+            on_positions_change=sync_dragged_positions,
+        )
+        st.caption(
+            "Перетаскивайте вершины мышью · двигайте поле за пустое место · меняйте масштаб колёсиком "
+            "или кнопками · ненулевая стрелка окрашена в цвет вершины назначения · нулевая связь серая"
+        )
     else:
         st.warning("Граф пока пуст. Добавьте вершину в панели слева.")
 
@@ -403,6 +285,17 @@ def render_main(graph: nx.DiGraph) -> None:
     metric_cols[1].metric("Положительные", positive)
     metric_cols[2].metric("Отрицательные", negative)
     metric_cols[3].metric("Нулевые", zero)
+
+
+def sync_dragged_positions() -> None:
+    component_state = st.session_state.get(GRAPH_COMPONENT_KEY, {})
+    if hasattr(component_state, "get"):
+        positions = component_state.get("positions")
+    else:
+        positions = getattr(component_state, "positions", None)
+    graph: nx.DiGraph | None = st.session_state.get("graph")
+    if graph is not None and apply_position_updates(graph, positions):
+        st.session_state.status = "Новое расположение вершин сохранено в текущем графе."
 
 
 def main() -> None:

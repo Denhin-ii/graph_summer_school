@@ -6,6 +6,7 @@ from pathlib import Path
 
 import networkx as nx
 
+from graph_component import apply_position_updates
 from graph_store import (
     GraphWorkbookError,
     add_connection,
@@ -22,7 +23,16 @@ class GraphStoreTests(unittest.TestCase):
         graph.add_node("N001", label="Ремонт дорог", x=0.2, y=0.3)
         graph.add_node("N002", label="Аварийность", x=0.8, y=0.7)
         graph.add_node("N003", label="Мобильность", x=0.5, y=0.1)
-        add_connection(graph, "N001", "N002", -0.75, bidirectional=True, reverse_weight=0.25, bold=True)
+        add_connection(
+            graph,
+            "N001",
+            "N002",
+            -0.75,
+            bidirectional=True,
+            reverse_weight=0.25,
+            bold=True,
+            reverse_bold=False,
+        )
         add_connection(graph, "N003", "N001", 0.0)
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -35,7 +45,7 @@ class GraphStoreTests(unittest.TestCase):
         self.assertEqual(restored["N001"]["N002"]["weight"], -0.75)
         self.assertEqual(restored["N002"]["N001"]["weight"], 0.25)
         self.assertTrue(restored["N001"]["N002"]["bold"])
-        self.assertTrue(restored["N002"]["N001"]["bold"])
+        self.assertFalse(restored["N002"]["N001"]["bold"])
         self.assertEqual(restored["N003"]["N001"]["weight"], 0.0)
         self.assertAlmostEqual(restored.nodes["N001"]["x"], 0.2)
 
@@ -47,6 +57,25 @@ class GraphStoreTests(unittest.TestCase):
         graph.add_nodes_from(("A", "B"))
         with self.assertRaises(GraphWorkbookError):
             add_connection(graph, "A", "B", 1.01)
+
+    def test_browser_position_updates_are_validated_and_clamped(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node("N001", x=0.2, y=0.3)
+        graph.add_node("N002", x=0.8, y=0.7)
+
+        changed = apply_position_updates(
+            graph,
+            {
+                "N001": {"x": 1.2, "y": -0.1},
+                "N002": {"x": "not-a-number", "y": 0.4},
+                "missing": {"x": 0.5, "y": 0.5},
+            },
+        )
+
+        self.assertEqual(changed, 1)
+        self.assertEqual(graph.nodes["N001"]["x"], 1.0)
+        self.assertEqual(graph.nodes["N001"]["y"], 0.0)
+        self.assertEqual(graph.nodes["N002"]["x"], 0.8)
 
 
 if __name__ == "__main__":
