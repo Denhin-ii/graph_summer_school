@@ -25,7 +25,7 @@ GRAPH_EDITOR_HTML = """
     <button type="button" class="graph-toggle-scales" title="Настроить размеры элементов"
             aria-expanded="false">Масштабы</button>
     <button type="button" class="graph-toggle-labels" title="Переключить коды, названия и текст"
-            aria-pressed="false">Названия: коды</button>
+            aria-pressed="false">Названия: индексы</button>
     <button type="button" class="graph-toggle-focus" title="Показывать связи только выбранной вершины"
             aria-pressed="false">Связи вершины: выкл.</button>
     <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
@@ -366,8 +366,8 @@ export default function(component) {
   let lineScale = Number(svg.dataset.lineScale || 1);
   let nodeScale = Number(svg.dataset.nodeScale || 1);
   let nodeSpacing = Number(svg.dataset.nodeSpacing || data.nodeSpacing || 250);
-  const labelModes = ["code", "label", "text"];
-  let labelMode = labelModes.includes(svg.dataset.labelMode) ? svg.dataset.labelMode : "code";
+  const labelModes = ["label", "code", "text"];
+  let labelMode = labelModes.includes(svg.dataset.labelMode) ? svg.dataset.labelMode : "label";
   if (focusedNodeId && !nodes.has(focusedNodeId)) focusedNodeId = null;
 
   function currentNodeRadius() {
@@ -381,7 +381,7 @@ export default function(component) {
   }
 
   function applyLabelMode() {
-    const modeNames = { code: "коды", label: "названия", text: "текст" };
+    const modeNames = { label: "индексы", code: "коды", text: "описание" };
     toggleLabelsButton.textContent = `Названия: ${modeNames[labelMode]}`;
     toggleLabelsButton.setAttribute("aria-pressed", String(labelMode !== "text"));
     svg.dataset.labelMode = labelMode;
