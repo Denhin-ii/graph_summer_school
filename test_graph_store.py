@@ -15,6 +15,7 @@ from app import (
     MIN_NODE_CENTER_DISTANCE,
     MIN_NODE_EDGE_DISTANCE,
     apply_spring_layout,
+    count_edge_crossings,
     separate_nodes_from_edges,
 )
 from graph_component import apply_position_updates
@@ -30,6 +31,16 @@ from graph_store import (
 
 
 class GraphStoreTests(unittest.TestCase):
+    def test_edge_crossing_counter_ignores_shared_endpoints_and_reciprocal_edges(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node("A", x=0.0, y=0.0)
+        graph.add_node("B", x=1.0, y=1.0)
+        graph.add_node("C", x=0.0, y=1.0)
+        graph.add_node("D", x=1.0, y=0.0)
+        graph.add_edges_from((("A", "B"), ("B", "A"), ("C", "D"), ("A", "C")))
+
+        self.assertEqual(count_edge_crossings(graph), 1)
+
     def test_rebuild_moves_node_away_from_an_edge_and_its_label(self) -> None:
         graph = nx.DiGraph()
         graph.add_node("A", x=0.1, y=0.5)

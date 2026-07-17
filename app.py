@@ -100,35 +100,201 @@ def apply_spring_layout(
     graph: nx.DiGraph,
     seed: int = 42,
     minimum_distance: float = MIN_NODE_CENTER_DISTANCE,
-) -> None:
+) -> int:
     if not graph:
-        return
+        return 0
     if len(graph) == 1:
         node = next(iter(graph))
         graph.nodes[node]["x"] = graph.nodes[node]["y"] = 0.5
-        return
+        return 0
     ideal_distance = max(0.25, 1.0 / math.sqrt(len(graph)))
-    layout = nx.spring_layout(
-        graph,
-        seed=seed,
-        weight=None,
-        k=ideal_distance,
-        iterations=200,
-    )
+    if len(graph) <= 25:
+        candidate_count, finalist_count = 24, 8
+    elif len(graph) <= 60:
+        candidate_count, finalist_count = 16, 5
+    else:
+        candidate_count, finalist_count = 10, 3
+
+    candidates: list[tuple[tuple[int, float], dict[str, tuple[float, float]]]] = []
+    for candidate_index in range(candidate_count):
+        layout = nx.spring_layout(
+            graph,
+            seed=seed + candidate_index * 7919,
+            weight=None,
+            k=ideal_distance,
+            iterations=200,
+        )
+        positions = _normalize_layout(layout)
+        candidate_graph = graph.copy()
+        _apply_layout_positions(candidate_graph, positions)
+        candidates.append((_rough_layout_score(candidate_graph), positions))
+
+    finalists = sorted(candidates, key=lambda candidate: candidate[0])[:finalist_count]
+    best_graph: nx.DiGraph | None = None
+    best_score: tuple[int, int, float] | None = None
+    for _rough_score, positions in finalists:
+        candidate_graph = graph.copy()
+        _apply_layout_positions(candidate_graph, positions)
+        for _ in range(6):
+            separate_close_nodes(
+                candidate_graph,
+                minimum_distance=minimum_distance,
+                iterations=40,
+            )
+            separate_nodes_from_edges(candidate_graph, iterations=40)
+        score = _layout_score(candidate_graph)
+        if best_score is None or score < best_score:
+            best_graph = candidate_graph
+            best_score = score
+
+    if best_graph is not None:
+        for node_id in graph:
+            graph.nodes[node_id]["x"] = float(best_graph.nodes[node_id]["x"])
+            graph.nodes[node_id]["y"] = float(best_graph.nodes[node_id]["y"])
+    return best_score[0] if best_score is not None else 0
+
+
+def _normalize_layout(layout: dict[str, object]) -> dict[str, tuple[float, float]]:
     xs = [float(point[0]) for point in layout.values()]
     ys = [float(point[1]) for point in layout.values()]
     x_min, x_max = min(xs), max(xs)
     y_min, y_max = min(ys), max(ys)
-    for node_id, point in layout.items():
-        graph.nodes[node_id]["x"] = normalize(float(point[0]), x_min, x_max)
-        graph.nodes[node_id]["y"] = normalize(float(point[1]), y_min, y_max)
-    for _ in range(6):
-        separate_close_nodes(
-            graph,
-            minimum_distance=minimum_distance,
-            iterations=40,
+    return {
+        str(node_id): (
+            normalize(float(point[0]), x_min, x_max),
+            normalize(float(point[1]), y_min, y_max),
         )
-        separate_nodes_from_edges(graph, iterations=40)
+        for node_id, point in layout.items()
+    }
+
+
+def _apply_layout_positions(
+    graph: nx.DiGraph,
+    positions: dict[str, tuple[float, float]],
+) -> None:
+    for node_id in graph:
+        x, y = positions[str(node_id)]
+        graph.nodes[node_id]["x"] = x
+        graph.nodes[node_id]["y"] = y
+
+
+def _unique_layout_edges(graph: nx.DiGraph) -> list[tuple[str, str]]:
+    unique_edges: list[tuple[str, str]] = []
+    seen: set[frozenset[str]] = set()
+    for source, target in graph.edges:
+        pair = frozenset((str(source), str(target)))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        unique_edges.append((str(source), str(target)))
+    return unique_edges
+
+
+def _pixel_position(graph: nx.DiGraph, node_id: str) -> tuple[float, float]:
+    return (
+        float(graph.nodes[node_id]["x"]) * LAYOUT_WIDTH,
+        float(graph.nodes[node_id]["y"]) * LAYOUT_HEIGHT,
+    )
+
+
+def _orientation(
+    first: tuple[float, float],
+    second: tuple[float, float],
+    third: tuple[float, float],
+) -> float:
+    return (second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0])
+
+
+def _point_on_segment(
+    start: tuple[float, float],
+    point: tuple[float, float],
+    end: tuple[float, float],
+    epsilon: float = 1e-7,
+) -> bool:
+    return (
+        min(start[0], end[0]) - epsilon <= point[0] <= max(start[0], end[0]) + epsilon
+        and min(start[1], end[1]) - epsilon <= point[1] <= max(start[1], end[1]) + epsilon
+    )
+
+
+def _segments_intersect(
+    first_start: tuple[float, float],
+    first_end: tuple[float, float],
+    second_start: tuple[float, float],
+    second_end: tuple[float, float],
+) -> bool:
+    epsilon = 1e-7
+    first_a = _orientation(first_start, first_end, second_start)
+    first_b = _orientation(first_start, first_end, second_end)
+    second_a = _orientation(second_start, second_end, first_start)
+    second_b = _orientation(second_start, second_end, first_end)
+    if first_a * first_b < -epsilon and second_a * second_b < -epsilon:
+        return True
+    return (
+        (abs(first_a) <= epsilon and _point_on_segment(first_start, second_start, first_end))
+        or (abs(first_b) <= epsilon and _point_on_segment(first_start, second_end, first_end))
+        or (abs(second_a) <= epsilon and _point_on_segment(second_start, first_start, second_end))
+        or (abs(second_b) <= epsilon and _point_on_segment(second_start, first_end, second_end))
+    )
+
+
+def count_edge_crossings(graph: nx.DiGraph) -> int:
+    edges = _unique_layout_edges(graph)
+    crossings = 0
+    for first_index, (first_source, first_target) in enumerate(edges):
+        first_nodes = {first_source, first_target}
+        first_start = _pixel_position(graph, first_source)
+        first_end = _pixel_position(graph, first_target)
+        for second_source, second_target in edges[first_index + 1 :]:
+            if first_nodes.intersection((second_source, second_target)):
+                continue
+            if _segments_intersect(
+                first_start,
+                first_end,
+                _pixel_position(graph, second_source),
+                _pixel_position(graph, second_target),
+            ):
+                crossings += 1
+    return crossings
+
+
+def _node_edge_conflicts(graph: nx.DiGraph) -> int:
+    conflicts = 0
+    for source, target in _unique_layout_edges(graph):
+        source_x, source_y = _pixel_position(graph, source)
+        target_x, target_y = _pixel_position(graph, target)
+        edge_x, edge_y = target_x - source_x, target_y - source_y
+        length_squared = edge_x * edge_x + edge_y * edge_y
+        if length_squared < 1e-9:
+            continue
+        for node_id in graph:
+            node_id = str(node_id)
+            if node_id in (source, target):
+                continue
+            node_x, node_y = _pixel_position(graph, node_id)
+            projection = ((node_x - source_x) * edge_x + (node_y - source_y) * edge_y) / length_squared
+            if not 0.05 < projection < 0.95:
+                continue
+            closest_x = source_x + projection * edge_x
+            closest_y = source_y + projection * edge_y
+            if math.hypot(node_x - closest_x, node_y - closest_y) < MIN_NODE_EDGE_DISTANCE:
+                conflicts += 1
+    return conflicts
+
+
+def _total_edge_length(graph: nx.DiGraph) -> float:
+    return sum(
+        math.dist(_pixel_position(graph, source), _pixel_position(graph, target))
+        for source, target in _unique_layout_edges(graph)
+    )
+
+
+def _rough_layout_score(graph: nx.DiGraph) -> tuple[int, float]:
+    return count_edge_crossings(graph), _total_edge_length(graph)
+
+
+def _layout_score(graph: nx.DiGraph) -> tuple[int, int, float]:
+    return count_edge_crossings(graph), _node_edge_conflicts(graph), _total_edge_length(graph)
 
 
 def separate_close_nodes(
@@ -572,12 +738,15 @@ def confirm_graph_rebuild() -> None:
         if st.button("Да, перестроить", type="primary", width="stretch"):
             graph: nx.DiGraph = st.session_state.graph
             st.session_state.layout_seed += 1
-            apply_spring_layout(
+            crossings = apply_spring_layout(
                 graph,
                 seed=st.session_state.layout_seed,
                 minimum_distance=float(st.session_state.node_spacing),
             )
-            st.session_state.status = "Расположение пересчитано алгоритмом spring_layout."
+            st.session_state.status = (
+                "Выбран лучший вариант перестроения: "
+                f"пересечений независимых линий — {crossings}."
+            )
             st.rerun()
     with cancel_col:
         if st.button("Отмена", width="stretch"):
