@@ -24,8 +24,8 @@ GRAPH_EDITOR_HTML = """
     <button type="button" class="graph-reset-view" title="Показать весь граф">Весь граф</button>
     <button type="button" class="graph-toggle-scales" title="Настроить размеры элементов"
             aria-expanded="false">Масштабы</button>
-    <button type="button" class="graph-toggle-labels" title="Переключить текстовые названия и коды"
-            aria-pressed="false">Названия: текст</button>
+    <button type="button" class="graph-toggle-labels" title="Переключить коды, названия и текст"
+            aria-pressed="false">Названия: коды</button>
     <button type="button" class="graph-toggle-focus" title="Показывать связи только выбранной вершины"
             aria-pressed="false">Связи вершины: выкл.</button>
     <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
