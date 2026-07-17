@@ -17,14 +17,12 @@ GRAPH_EDITOR_HTML = """
     <span class="graph-zoom-value" aria-live="polite">100%</span>
     <button type="button" class="graph-zoom-in" title="Увеличить" aria-label="Увеличить">+</button>
     <button type="button" class="graph-reset-view" title="Сбросить масштаб и сдвиг">Сбросить вид</button>
+    <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
+            aria-pressed="true">Сетка: вкл.</button>
   </div>
   <svg class="graph-editor-canvas" viewBox="0 0 1100 650" role="application"
        aria-label="Интерактивный редактор расположения вершин графа">
-    <defs>
-      <pattern id="graph-grid" width="25" height="25" patternUnits="userSpaceOnUse">
-        <path d="M 25 0 L 0 0 0 25" fill="none" stroke="#D9E2EC" stroke-width="1" />
-      </pattern>
-    </defs>
+    <defs></defs>
     <rect class="graph-background" x="0" y="0" width="1100" height="650" />
     <g class="graph-viewport">
       <g class="graph-edges"></g>
@@ -42,7 +40,15 @@ GRAPH_EDITOR_CSS = """
   overflow: hidden;
   border: 1px solid #D9E2EC;
   border-radius: 0.5rem;
-  background: #F7F9FC;
+  background-color: #F7F9FC;
+  background-image:
+    linear-gradient(to right, #D9E2EC 1px, transparent 1px),
+    linear-gradient(to bottom, #D9E2EC 1px, transparent 1px);
+  background-size: 25px 25px;
+}
+
+.graph-editor-root.graph-grid-hidden {
+  background-image: none;
 }
 
 .graph-controls {
@@ -98,7 +104,8 @@ GRAPH_EDITOR_CSS = """
 }
 
 .graph-background {
-  fill: url(#graph-grid);
+  fill: transparent;
+  pointer-events: all;
   cursor: grab;
 }
 
@@ -139,7 +146,7 @@ GRAPH_EDITOR_CSS = """
 }
 
 .graph-node text {
-  font: 600 12px sans-serif;
+  font: 600 11px sans-serif;
   text-anchor: middle;
   pointer-events: none;
 }
@@ -153,7 +160,9 @@ const PAD_X = 50;
 const PAD_Y = 50;
 const PLOT_WIDTH = WIDTH - 2 * PAD_X;
 const PLOT_HEIGHT = HEIGHT - 2 * PAD_Y;
-const NODE_RADIUS = 32;
+const NODE_RADIUS = 40;
+const LABEL_LINE_LENGTH = 11;
+const LABEL_MAX_LINES = 4;
 
 function svgElement(name, attributes = {}) {
   const element = document.createElementNS(SVG_NS, name);
@@ -198,11 +207,18 @@ function contrastColor(color) {
 function labelLines(label) {
   const words = String(label).trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [""];
+  const pieces = words.flatMap((word) => {
+    const chunks = [];
+    for (let index = 0; index < word.length; index += LABEL_LINE_LENGTH) {
+      chunks.push(word.slice(index, index + LABEL_LINE_LENGTH));
+    }
+    return chunks;
+  });
   const lines = [];
   let current = "";
-  for (const word of words) {
+  for (const word of pieces) {
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= 15 || !current) {
+    if (candidate.length <= LABEL_LINE_LENGTH || !current) {
       current = candidate;
     } else {
       lines.push(current);
@@ -210,12 +226,15 @@ function labelLines(label) {
     }
   }
   if (current) lines.push(current);
-  if (lines.length <= 3) return lines;
-  return [lines[0], lines[1], `${lines.slice(2).join(" ").slice(0, 13)}…`];
+  if (lines.length <= LABEL_MAX_LINES) return lines;
+  const visible = lines.slice(0, LABEL_MAX_LINES);
+  visible[LABEL_MAX_LINES - 1] = `${visible[LABEL_MAX_LINES - 1].slice(0, LABEL_LINE_LENGTH - 1)}…`;
+  return visible;
 }
 
 export default function(component) {
   const { parentElement, data, setStateValue } = component;
+  const root = parentElement.querySelector(".graph-editor-root");
   const svg = parentElement.querySelector(".graph-editor-canvas");
   const viewport = parentElement.querySelector(".graph-viewport");
   const edgesLayer = parentElement.querySelector(".graph-edges");
@@ -224,6 +243,7 @@ export default function(component) {
   const zoomOutButton = parentElement.querySelector(".graph-zoom-out");
   const zoomInButton = parentElement.querySelector(".graph-zoom-in");
   const resetViewButton = parentElement.querySelector(".graph-reset-view");
+  const toggleGridButton = parentElement.querySelector(".graph-toggle-grid");
   const zoomValue = parentElement.querySelector(".graph-zoom-value");
   const nodes = new Map(
     (data.nodes || []).map((node) => [node.id, { ...node, x: Number(node.x), y: Number(node.y) }])
@@ -234,6 +254,14 @@ export default function(component) {
   let zoom = Number(svg.dataset.zoom || 1);
   let panX = Number(svg.dataset.panX || 0);
   let panY = Number(svg.dataset.panY || 0);
+  let gridVisible = svg.dataset.gridVisible !== "false";
+
+  function applyGridVisibility() {
+    root.classList.toggle("graph-grid-hidden", !gridVisible);
+    toggleGridButton.textContent = gridVisible ? "Сетка: вкл." : "Сетка: выкл.";
+    toggleGridButton.setAttribute("aria-pressed", String(gridVisible));
+    svg.dataset.gridVisible = String(gridVisible);
+  }
 
   function applyView() {
     viewport.setAttribute("transform", `translate(${panX} ${panY}) scale(${zoom})`);
@@ -380,7 +408,7 @@ export default function(component) {
       lines.forEach((line, index) => {
         const tspan = svgElement("tspan", {
           x: 0,
-          y: (index - (lines.length - 1) / 2) * 14,
+          y: (index - (lines.length - 1) / 2) * 13,
         });
         tspan.textContent = line;
         text.appendChild(tspan);
@@ -442,6 +470,7 @@ export default function(component) {
   }
 
   applyView();
+  applyGridVisibility();
   drawEdges();
   drawNodes();
   background.addEventListener("pointerdown", startPan);
@@ -457,6 +486,10 @@ export default function(component) {
     panY = 0;
     applyView();
   };
+  toggleGridButton.onclick = () => {
+    gridVisible = !gridVisible;
+    applyGridVisibility();
+  };
 
   return () => {
     background.removeEventListener("pointerdown", startPan);
@@ -467,6 +500,7 @@ export default function(component) {
     zoomOutButton.onclick = null;
     zoomInButton.onclick = null;
     resetViewButton.onclick = null;
+    toggleGridButton.onclick = null;
   };
 }
 """
