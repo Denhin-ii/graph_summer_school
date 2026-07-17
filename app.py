@@ -115,23 +115,24 @@ def apply_spring_layout(
     else:
         candidate_count, finalist_count = 10, 3
 
+    topology = nx.Graph()
+    topology.add_nodes_from(graph.nodes)
+    topology.add_edges_from(_unique_layout_edges(graph))
+    base_layouts = _generate_base_layouts(
+        topology,
+        seed=seed,
+        ideal_distance=ideal_distance,
+        candidate_count=candidate_count,
+    )
     candidates: list[tuple[tuple[int, float], dict[str, tuple[float, float]]]] = []
-    for candidate_index in range(candidate_count):
-        layout = nx.spring_layout(
-            graph,
-            seed=seed + candidate_index * 7919,
-            weight=None,
-            k=ideal_distance,
-            iterations=200,
-        )
+    for layout in base_layouts:
         positions = _normalize_layout(layout)
         candidate_graph = graph.copy()
         _apply_layout_positions(candidate_graph, positions)
         candidates.append((_rough_layout_score(candidate_graph), positions))
 
     finalists = sorted(candidates, key=lambda candidate: candidate[0])[:finalist_count]
-    best_graph: nx.DiGraph | None = None
-    best_score: tuple[int, int, float] | None = None
+    refined: list[tuple[tuple[int, int, float, float], nx.DiGraph]] = []
     for _rough_score, positions in finalists:
         candidate_graph = graph.copy()
         _apply_layout_positions(candidate_graph, positions)
@@ -143,15 +144,71 @@ def apply_spring_layout(
             )
             separate_nodes_from_edges(candidate_graph, iterations=40)
         score = _layout_score(candidate_graph)
-        if best_score is None or score < best_score:
-            best_graph = candidate_graph
-            best_score = score
+        refined.append((score, candidate_graph))
+
+    refined.sort(key=lambda candidate: candidate[0])
+    optimized = list(refined)
+    for _score, candidate_graph in refined[:2]:
+        optimized_graph = candidate_graph.copy()
+        optimized_score = _optimize_layout_by_swapping(optimized_graph)
+        optimized.append((optimized_score, optimized_graph))
+    best_score, best_graph = min(optimized, key=lambda candidate: candidate[0])
 
     if best_graph is not None:
         for node_id in graph:
             graph.nodes[node_id]["x"] = float(best_graph.nodes[node_id]["x"])
             graph.nodes[node_id]["y"] = float(best_graph.nodes[node_id]["y"])
-    return best_score[0] if best_score is not None else 0
+    return best_score[0]
+
+
+def _generate_base_layouts(
+    topology: nx.Graph,
+    *,
+    seed: int,
+    ideal_distance: float,
+    candidate_count: int,
+) -> list[dict[str, object]]:
+    layouts: list[dict[str, object]] = []
+    planar, _embedding = nx.check_planarity(topology)
+    if planar:
+        layouts.append(nx.planar_layout(topology))
+    try:
+        layouts.append(nx.kamada_kawai_layout(topology, weight=None))
+    except (nx.NetworkXException, ValueError, ModuleNotFoundError):
+        pass
+    if len(topology) >= 3:
+        try:
+            layouts.append(nx.spectral_layout(topology, weight=None))
+        except (nx.NetworkXException, ValueError):
+            pass
+
+    degree_order = sorted(topology, key=lambda node: (-topology.degree[node], str(node)))
+    layouts.append(_circular_layout(degree_order))
+    layouts.append(_circular_layout(list(reversed(degree_order))))
+
+    spring_count = max(1, candidate_count - len(layouts))
+    for candidate_index in range(spring_count):
+        layouts.append(
+            nx.spring_layout(
+                topology,
+                seed=seed + candidate_index * 7919,
+                weight=None,
+                k=ideal_distance,
+                iterations=250,
+            )
+        )
+    return layouts[:candidate_count]
+
+
+def _circular_layout(node_order: list[str]) -> dict[str, tuple[float, float]]:
+    count = max(len(node_order), 1)
+    return {
+        str(node_id): (
+            math.cos(2 * math.pi * index / count),
+            math.sin(2 * math.pi * index / count),
+        )
+        for index, node_id in enumerate(node_order)
+    }
 
 
 def _normalize_layout(layout: dict[str, object]) -> dict[str, tuple[float, float]]:
@@ -289,12 +346,83 @@ def _total_edge_length(graph: nx.DiGraph) -> float:
     )
 
 
+def _angular_resolution_penalty(graph: nx.DiGraph) -> float:
+    neighbors: dict[str, set[str]] = {str(node_id): set() for node_id in graph}
+    for source, target in _unique_layout_edges(graph):
+        neighbors[source].add(target)
+        neighbors[target].add(source)
+    penalty = 0.0
+    desired_angle = math.radians(20)
+    for node_id, adjacent in neighbors.items():
+        if len(adjacent) < 2:
+            continue
+        center_x, center_y = _pixel_position(graph, node_id)
+        angles = sorted(
+            math.atan2(
+                _pixel_position(graph, adjacent_id)[1] - center_y,
+                _pixel_position(graph, adjacent_id)[0] - center_x,
+            )
+            for adjacent_id in adjacent
+        )
+        gaps = [
+            (angles[(index + 1) % len(angles)] - angle) % (2 * math.pi)
+            for index, angle in enumerate(angles)
+        ]
+        penalty += sum(max(0.0, desired_angle - gap) ** 2 for gap in gaps)
+    return penalty
+
+
 def _rough_layout_score(graph: nx.DiGraph) -> tuple[int, float]:
     return count_edge_crossings(graph), _total_edge_length(graph)
 
 
-def _layout_score(graph: nx.DiGraph) -> tuple[int, int, float]:
-    return count_edge_crossings(graph), _node_edge_conflicts(graph), _total_edge_length(graph)
+def _layout_score(graph: nx.DiGraph) -> tuple[int, int, float, float]:
+    return (
+        count_edge_crossings(graph),
+        _node_edge_conflicts(graph),
+        _angular_resolution_penalty(graph),
+        _total_edge_length(graph),
+    )
+
+
+def _optimize_layout_by_swapping(
+    graph: nx.DiGraph,
+    *,
+    max_passes: int = 4,
+    max_pair_checks: int = 800,
+) -> tuple[int, int, float, float]:
+    node_ids = sorted(graph, key=lambda node_id: (-graph.degree[node_id], str(node_id)))
+    current_score = _layout_score(graph)
+    for _ in range(max_passes):
+        best_pair: tuple[str, str] | None = None
+        best_score = current_score
+        checks = 0
+        for first_index, first in enumerate(node_ids):
+            for second in node_ids[first_index + 1 :]:
+                first_position = (graph.nodes[first]["x"], graph.nodes[first]["y"])
+                second_position = (graph.nodes[second]["x"], graph.nodes[second]["y"])
+                graph.nodes[first]["x"], graph.nodes[first]["y"] = second_position
+                graph.nodes[second]["x"], graph.nodes[second]["y"] = first_position
+                score = _layout_score(graph)
+                graph.nodes[first]["x"], graph.nodes[first]["y"] = first_position
+                graph.nodes[second]["x"], graph.nodes[second]["y"] = second_position
+                checks += 1
+                if score < best_score:
+                    best_score = score
+                    best_pair = (first, second)
+                if checks >= max_pair_checks:
+                    break
+            if checks >= max_pair_checks:
+                break
+        if best_pair is None:
+            break
+        first, second = best_pair
+        first_position = (graph.nodes[first]["x"], graph.nodes[first]["y"])
+        second_position = (graph.nodes[second]["x"], graph.nodes[second]["y"])
+        graph.nodes[first]["x"], graph.nodes[first]["y"] = second_position
+        graph.nodes[second]["x"], graph.nodes[second]["y"] = first_position
+        current_score = best_score
+    return current_score
 
 
 def separate_close_nodes(

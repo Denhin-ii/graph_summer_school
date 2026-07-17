@@ -41,6 +41,18 @@ class GraphStoreTests(unittest.TestCase):
 
         self.assertEqual(count_edge_crossings(graph), 1)
 
+    def test_rebuild_finds_crossing_free_layout_for_planar_complete_graph(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_edges_from(
+            (str(source), str(target))
+            for source, target in nx.complete_graph(4).edges()
+        )
+
+        crossings = apply_spring_layout(graph, minimum_distance=120.0)
+
+        self.assertEqual(crossings, 0)
+        self.assertEqual(count_edge_crossings(graph), 0)
+
     def test_rebuild_moves_node_away_from_an_edge_and_its_label(self) -> None:
         graph = nx.DiGraph()
         graph.add_node("A", x=0.1, y=0.5)
