@@ -22,6 +22,8 @@ GRAPH_EDITOR_HTML = """
     <span class="graph-zoom-value" aria-live="polite">100%</span>
     <button type="button" class="graph-zoom-in" title="Увеличить" aria-label="Увеличить">+</button>
     <button type="button" class="graph-reset-view" title="Показать весь граф">Весь граф</button>
+    <button type="button" class="graph-toggle-focus" title="Показывать связи только выбранной вершины"
+            aria-pressed="false">Связи вершины: выкл.</button>
     <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
             aria-pressed="true">Сетка: вкл.</button>
     <button type="button" class="graph-toggle-fullscreen" title="Открыть граф на весь экран">На весь экран</button>
@@ -94,6 +96,12 @@ GRAPH_EDITOR_CSS = """
 .graph-controls button:hover {
   border-color: #486581;
   background: #F0F4F8;
+}
+
+.graph-controls button[aria-pressed="true"] {
+  border-color: #2F6FAD;
+  background: #DCEEFF;
+  color: #174A7E;
 }
 
 .graph-controls button:focus-visible {
@@ -266,6 +274,7 @@ export default function(component) {
   const zoomOutButton = parentElement.querySelector(".graph-zoom-out");
   const zoomInButton = parentElement.querySelector(".graph-zoom-in");
   const resetViewButton = parentElement.querySelector(".graph-reset-view");
+  const toggleFocusButton = parentElement.querySelector(".graph-toggle-focus");
   const toggleGridButton = parentElement.querySelector(".graph-toggle-grid");
   const toggleFullscreenButton = parentElement.querySelector(".graph-toggle-fullscreen");
   const zoomValue = parentElement.querySelector(".graph-zoom-value");
@@ -279,12 +288,25 @@ export default function(component) {
   let panX = Number(svg.dataset.panX || 0);
   let panY = Number(svg.dataset.panY || 0);
   let gridVisible = svg.dataset.gridVisible !== "false";
+  let focusMode = svg.dataset.focusMode === "true";
+  let focusedNodeId = svg.dataset.focusedNodeId || null;
+  if (focusedNodeId && !nodes.has(focusedNodeId)) focusedNodeId = null;
 
   function applyGridVisibility() {
     root.classList.toggle("graph-grid-hidden", !gridVisible);
     toggleGridButton.textContent = gridVisible ? "Сетка: вкл." : "Сетка: выкл.";
     toggleGridButton.setAttribute("aria-pressed", String(gridVisible));
     svg.dataset.gridVisible = String(gridVisible);
+  }
+
+  function applyFocusMode() {
+    toggleFocusButton.textContent = focusMode ? "Связи вершины: вкл." : "Связи вершины: выкл.";
+    toggleFocusButton.setAttribute("aria-pressed", String(focusMode));
+    toggleFocusButton.title = focusMode
+      ? "Выберите или перетащите вершину; повторное нажатие покажет все связи"
+      : "Показывать связи только выбранной вершины";
+    svg.dataset.focusMode = String(focusMode);
+    svg.dataset.focusedNodeId = focusedNodeId || "";
   }
 
   function getFullscreenElement() {
@@ -621,7 +643,10 @@ export default function(component) {
     clearLayer(edgesLayer);
     const occupiedLabels = [];
     const reciprocalPlans = new Map();
-    const edgeLayouts = edges.map((edge, index) => {
+    const visibleEdges = focusMode && focusedNodeId
+      ? edges.filter((edge) => edge.source === focusedNodeId || edge.target === focusedNodeId)
+      : edges;
+    const edgeLayouts = visibleEdges.map((edge, index) => {
       if (!nodes.has(edge.source) || !nodes.has(edge.target)) return null;
       let reciprocalPlan = { curved: false, side: 1 };
       if (edge.reciprocal) {
@@ -736,6 +761,11 @@ export default function(component) {
       group.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
         event.preventDefault();
+        if (focusMode && focusedNodeId !== node.id) {
+          focusedNodeId = node.id;
+          applyFocusMode();
+          drawEdges();
+        }
         const start = localPosition(svg, event);
         activeDrag = {
           id: node.id,
@@ -816,6 +846,7 @@ export default function(component) {
 
   applyView();
   applyGridVisibility();
+  applyFocusMode();
   updateFullscreenButton();
   drawEdges();
   drawNodes();
@@ -827,6 +858,12 @@ export default function(component) {
   zoomOutButton.onclick = () => setZoom(zoom / 1.25);
   zoomInButton.onclick = () => setZoom(zoom * 1.25);
   resetViewButton.onclick = fitGraphToView;
+  toggleFocusButton.onclick = () => {
+    focusMode = !focusMode;
+    if (!focusMode) focusedNodeId = null;
+    applyFocusMode();
+    drawEdges();
+  };
   toggleGridButton.onclick = () => {
     gridVisible = !gridVisible;
     applyGridVisibility();
@@ -843,6 +880,7 @@ export default function(component) {
     zoomOutButton.onclick = null;
     zoomInButton.onclick = null;
     resetViewButton.onclick = null;
+    toggleFocusButton.onclick = null;
     toggleGridButton.onclick = null;
     toggleFullscreenButton.onclick = null;
     document.removeEventListener("fullscreenchange", updateFullscreenButton);
