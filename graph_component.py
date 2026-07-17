@@ -274,7 +274,6 @@ export default function(component) {
   const edges = data.edges || [];
   let activeDrag = null;
   let activePan = null;
-  let suppressEdgeClick = false;
   let zoom = Number(svg.dataset.zoom || 1);
   let panX = Number(svg.dataset.panX || 0);
   let panY = Number(svg.dataset.panY || 0);
@@ -371,6 +370,7 @@ export default function(component) {
     if (event.target.closest(".graph-node")) return;
     event.preventDefault();
     const point = localPosition(svg, event);
+    const edgeGroup = event.target.closest(".graph-edge");
     activePan = {
       pointerId: event.pointerId,
       startX: point.x,
@@ -378,7 +378,8 @@ export default function(component) {
       initialPanX: panX,
       initialPanY: panY,
       moved: false,
-      startedOnEdge: Boolean(event.target.closest(".graph-edge")),
+      edgeSource: edgeGroup?.dataset.source || null,
+      edgeTarget: edgeGroup?.dataset.target || null,
     };
     svg.setPointerCapture(event.pointerId);
   }
@@ -427,6 +428,8 @@ export default function(component) {
         role: "button",
         tabindex: "0",
         "aria-label": `Связь ${edge.source} → ${edge.target}`,
+        "data-source": edge.source,
+        "data-target": edge.target,
       });
       const hitPath = svgElement("path", {
         d: `M ${geometry.start.x},${geometry.start.y} Q ${geometry.control.x},${geometry.control.y} ${geometry.end.x},${geometry.end.y}`,
@@ -476,13 +479,8 @@ export default function(component) {
       group.appendChild(label);
       const selectEdge = (event) => {
         event.stopPropagation();
-        if (suppressEdgeClick) {
-          suppressEdgeClick = false;
-          return;
-        }
         setStateValue("selected_edge", { source: edge.source, target: edge.target });
       };
-      group.addEventListener("click", selectEdge);
       group.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") selectEdge(event);
       });
@@ -580,7 +578,12 @@ export default function(component) {
   function finishDrag(event) {
     if (activePan && event.pointerId === activePan.pointerId) {
       if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
-      suppressEdgeClick = activePan.moved && activePan.startedOnEdge;
+      if (!activePan.moved && activePan.edgeSource && activePan.edgeTarget) {
+        setStateValue("selected_edge", {
+          source: activePan.edgeSource,
+          target: activePan.edgeTarget,
+        });
+      }
       activePan = null;
       return;
     }
