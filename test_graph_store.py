@@ -108,6 +108,7 @@ class GraphStoreTests(unittest.TestCase):
             reverse_bold=False,
         )
         add_connection(graph, "N003", "N001", 0.0)
+        graph.graph.update(view_zoom=0.72, view_pan_x=135.0, view_pan_y=-48.0)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "graph.xlsx"
@@ -123,6 +124,9 @@ class GraphStoreTests(unittest.TestCase):
         self.assertEqual(restored["N003"]["N001"]["weight"], 0.0)
         self.assertAlmostEqual(restored.nodes["N001"]["x"], 1.2)
         self.assertAlmostEqual(restored.nodes["N001"]["y"], -0.3)
+        self.assertAlmostEqual(restored.graph["view_zoom"], 0.72)
+        self.assertAlmostEqual(restored.graph["view_pan_x"], 135.0)
+        self.assertAlmostEqual(restored.graph["view_pan_y"], -48.0)
 
         from_bytes = load_graph_from_excel_bytes(graph_to_excel_bytes(graph))
         self.assertEqual(from_bytes["N003"]["N001"]["weight"], 0.0)

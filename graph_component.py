@@ -348,9 +348,13 @@ export default function(component) {
   const edges = data.edges || [];
   let activeDrag = null;
   let activePan = null;
-  let zoom = Number(svg.dataset.zoom || 1);
-  let panX = Number(svg.dataset.panX || 0);
-  let panY = Number(svg.dataset.panY || 0);
+  let viewPersistTimer = null;
+  const incomingViewRevision = String(data.viewRevision ?? 0);
+  const restoreIncomingView = svg.dataset.viewRevision !== incomingViewRevision;
+  let zoom = Number(restoreIncomingView ? data.view?.zoom ?? 1 : svg.dataset.zoom || 1);
+  let panX = Number(restoreIncomingView ? data.view?.panX ?? 0 : svg.dataset.panX || 0);
+  let panY = Number(restoreIncomingView ? data.view?.panY ?? 0 : svg.dataset.panY || 0);
+  svg.dataset.viewRevision = incomingViewRevision;
   let gridVisible = svg.dataset.gridVisible !== "false";
   let focusMode = svg.dataset.focusMode === "true";
   let focusedNodeId = svg.dataset.focusedNodeId || null;
@@ -441,6 +445,18 @@ export default function(component) {
     svg.dataset.panY = String(panY);
   }
 
+  function persistView() {
+    setStateValue("view", { zoom, panX, panY });
+  }
+
+  function scheduleViewPersistence() {
+    if (viewPersistTimer !== null) clearTimeout(viewPersistTimer);
+    viewPersistTimer = setTimeout(() => {
+      viewPersistTimer = null;
+      persistView();
+    }, 200);
+  }
+
   function setZoom(nextZoom, centerX = WIDTH / 2, centerY = HEIGHT / 2) {
     const boundedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
     if (Math.abs(boundedZoom - zoom) < 0.0001) return;
@@ -450,6 +466,7 @@ export default function(component) {
     panY = centerY - contentY * boundedZoom;
     zoom = boundedZoom;
     applyView();
+    scheduleViewPersistence();
   }
 
   function fitGraphToView() {
@@ -458,6 +475,7 @@ export default function(component) {
       panX = 0;
       panY = 0;
       applyView();
+      persistView();
       return;
     }
     // SVG getBBox учитывает не только центры вершин, но также их окружности,
@@ -481,6 +499,7 @@ export default function(component) {
     panX = WIDTH / 2 - ((minX + maxX) / 2) * zoom;
     panY = HEIGHT / 2 - ((minY + maxY) / 2) * zoom;
     applyView();
+    persistView();
   }
 
   function onWheel(event) {
@@ -933,6 +952,8 @@ export default function(component) {
           source: activePan.edgeSource,
           target: activePan.edgeTarget,
         });
+      } else if (activePan.moved) {
+        persistView();
       }
       activePan = null;
       return;
@@ -1006,6 +1027,7 @@ export default function(component) {
   document.addEventListener("fullscreenchange", updateFullscreenButton);
 
   return () => {
+    if (viewPersistTimer !== null) clearTimeout(viewPersistTimer);
     svg.removeEventListener("pointerdown", startPan);
     svg.removeEventListener("wheel", onWheel);
     svg.removeEventListener("pointermove", onPointerMove);
@@ -1077,6 +1099,8 @@ def render_draggable_graph(
     on_selected_edge_change: Callable[[], None],
     node_spacing: float,
     on_node_spacing_change: Callable[[], None],
+    view_revision: int,
+    on_view_change: Callable[[], None],
 ) -> None:
     nodes = [
         {
@@ -1101,18 +1125,31 @@ def render_draggable_graph(
         for source, target, attrs in graph.edges(data=True)
     ]
     positions = {node["id"]: {"x": node["x"], "y": node["y"]} for node in nodes}
+    view = {
+        "zoom": float(graph.graph.get("view_zoom", 1.0)),
+        "panX": float(graph.graph.get("view_pan_x", 0.0)),
+        "panY": float(graph.graph.get("view_pan_y", 0.0)),
+    }
     draggable_graph_component(
         key=key,
-        data={"nodes": nodes, "edges": edges, "nodeSpacing": node_spacing},
+        data={
+            "nodes": nodes,
+            "edges": edges,
+            "nodeSpacing": node_spacing,
+            "view": view,
+            "viewRevision": view_revision,
+        },
         default={
             "positions": positions,
             "selected_node": None,
             "selected_edge": None,
             "node_spacing": node_spacing,
+            "view": view,
         },
         height=650,
         on_positions_change=on_positions_change,
         on_selected_node_change=on_selected_node_change,
         on_selected_edge_change=on_selected_edge_change,
         on_node_spacing_change=on_node_spacing_change,
+        on_view_change=on_view_change,
     )

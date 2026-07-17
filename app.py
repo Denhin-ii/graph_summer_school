@@ -55,6 +55,8 @@ def initialize_state() -> None:
         st.session_state.quick_edge_source = None
     if "node_spacing" not in st.session_state:
         st.session_state.node_spacing = MIN_NODE_CENTER_DISTANCE
+    if "view_revision" not in st.session_state:
+        st.session_state.view_revision = 0
     if "last_autosave_monotonic" not in st.session_state:
         st.session_state.last_autosave_monotonic = time.monotonic()
     if "last_autosave_at" not in st.session_state:
@@ -807,6 +809,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                 st.error(str(exc))
             else:
                 st.session_state.graph = loaded
+                st.session_state.view_revision += 1
                 reset_next_node_id(loaded)
                 ensure_positions(loaded)
                 st.session_state.edge_editor_revision += 1
@@ -820,6 +823,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                 st.error(str(exc))
             else:
                 st.session_state.graph = loaded
+                st.session_state.view_revision += 1
                 reset_next_node_id(loaded)
                 ensure_positions(loaded)
                 st.session_state.edge_editor_revision += 1
@@ -836,6 +840,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                     st.error(str(exc))
                 else:
                     st.session_state.graph = loaded
+                    st.session_state.view_revision += 1
                     reset_next_node_id(loaded)
                     ensure_positions(loaded)
                     st.session_state.edge_editor_revision += 1
@@ -902,6 +907,8 @@ def render_main(graph: nx.DiGraph) -> None:
             on_selected_edge_change=sync_selected_edge,
             node_spacing=float(st.session_state.node_spacing),
             on_node_spacing_change=sync_node_spacing,
+            view_revision=int(st.session_state.view_revision),
+            on_view_change=sync_view_state,
         )
         st.caption(
             "Перетаскивайте вершины мышью · двигайте поле за пустое место · меняйте масштаб колёсиком "
@@ -938,6 +945,24 @@ def sync_node_spacing() -> None:
         f"Интервал между вершинами: {st.session_state.node_spacing:.0f}. "
         "Нажмите «Перестроить граф», чтобы применить."
     )
+
+
+def sync_view_state() -> None:
+    view = component_state_value("view")
+    graph: nx.DiGraph | None = st.session_state.get("graph")
+    if graph is None or not hasattr(view, "get"):
+        return
+    try:
+        zoom = float(view.get("zoom"))
+        pan_x = float(view.get("panX"))
+        pan_y = float(view.get("panY"))
+    except (TypeError, ValueError):
+        return
+    if not all(math.isfinite(value) for value in (zoom, pan_x, pan_y)):
+        return
+    graph.graph["view_zoom"] = max(0.1, min(3.0, zoom))
+    graph.graph["view_pan_x"] = max(-10000.0, min(10000.0, pan_x))
+    graph.graph["view_pan_y"] = max(-10000.0, min(10000.0, pan_y))
 
 
 def main() -> None:

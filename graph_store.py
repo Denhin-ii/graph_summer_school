@@ -14,7 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 NODE_HEADERS = ("id", "label", "x", "y", "color")
 EDGE_HEADERS = ("source", "target", "weight", "bold")
 NODE_COLOR_PALETTE = (
@@ -31,6 +31,9 @@ DEFAULT_NODE_COLOR = NODE_COLOR_PALETTE[0]
 COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 MIN_NODE_COORDINATE = -1.0
 MAX_NODE_COORDINATE = 2.0
+MIN_VIEW_ZOOM = 0.1
+MAX_VIEW_ZOOM = 3.0
+MAX_VIEW_PAN = 10000.0
 
 
 class GraphWorkbookError(ValueError):
@@ -177,6 +180,13 @@ def load_graph_from_excel(source: str | Path | BinaryIO) -> nx.DiGraph:
             if source_id == target_id:
                 raise GraphWorkbookError(f"Петля в строке {row_number} не поддерживается.")
             graph.add_edge(source_id, target_id, weight=validate_weight(weight), bold=validate_bold(bold_value))
+        if "Настройки" in workbook.sheetnames:
+            settings = {
+                str(key): value
+                for key, value, *_rest in workbook["Настройки"].iter_rows(min_row=2, values_only=True)
+                if key not in (None, "")
+            }
+            _restore_view_settings(graph, settings)
         return graph
     finally:
         workbook.close()
@@ -226,6 +236,9 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
     settings_ws.append(["saved_at", datetime.now().isoformat(timespec="seconds")])
     settings_ws.append(["graph_type", "networkx.DiGraph"])
     settings_ws.append(["weight_range", "[-1, 1], zero is valid"])
+    settings_ws.append(["view_zoom", _view_value(graph.graph.get("view_zoom"), 1.0, MIN_VIEW_ZOOM, MAX_VIEW_ZOOM)])
+    settings_ws.append(["view_pan_x", _view_value(graph.graph.get("view_pan_x"), 0.0, -MAX_VIEW_PAN, MAX_VIEW_PAN)])
+    settings_ws.append(["view_pan_y", _view_value(graph.graph.get("view_pan_y"), 0.0, -MAX_VIEW_PAN, MAX_VIEW_PAN)])
 
     _format_data_sheet(nodes_ws, widths=(18, 36, 14, 14, 14), table_name="NodesTable")
     _format_data_sheet(edges_ws, widths=(18, 18, 14, 14), table_name="EdgesTable")
@@ -247,6 +260,37 @@ def _optional_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
     return float(value)
+
+
+def _view_value(value: Any, default: float, minimum: float, maximum: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number):
+        return default
+    return max(minimum, min(maximum, number))
+
+
+def _restore_view_settings(graph: nx.DiGraph, settings: dict[str, Any]) -> None:
+    graph.graph["view_zoom"] = _view_value(
+        settings.get("view_zoom"),
+        1.0,
+        MIN_VIEW_ZOOM,
+        MAX_VIEW_ZOOM,
+    )
+    graph.graph["view_pan_x"] = _view_value(
+        settings.get("view_pan_x"),
+        0.0,
+        -MAX_VIEW_PAN,
+        MAX_VIEW_PAN,
+    )
+    graph.graph["view_pan_y"] = _view_value(
+        settings.get("view_pan_y"),
+        0.0,
+        -MAX_VIEW_PAN,
+        MAX_VIEW_PAN,
+    )
 
 
 def _coordinate(value: Any, row_number: int, name: str) -> float | None:
