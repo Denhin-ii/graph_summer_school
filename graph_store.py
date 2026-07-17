@@ -14,11 +14,11 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 NODE_HEADERS = ("id", "label", "x", "y", "color")
 EDGE_HEADERS = ("source", "target", "weight", "bold")
-NAME_HEADERS = ("id", "label", "code", "text")
-LEGACY_NAME_HEADERS = ("id", "code", "text")
+NAME_HEADERS = ("id", "code", "text")
+EXTENDED_NAME_HEADERS = ("id", "label", "code", "text")
 NODE_COLOR_PALETTE = (
     "#4C78A8",
     "#F58518",
@@ -172,13 +172,13 @@ def load_graph_from_excel(source: str | Path | BinaryIO) -> nx.DiGraph:
         if "Названия" in workbook.sheetnames:
             names_ws = workbook["Названия"]
             actual_name_headers = tuple(names_ws.cell(1, column).value for column in range(1, 5))
-            legacy_names = actual_name_headers[:3] == LEGACY_NAME_HEADERS
-            if not legacy_names:
+            extended_names = actual_name_headers == EXTENDED_NAME_HEADERS
+            if not extended_names:
                 _require_headers(names_ws, NAME_HEADERS)
             seen_name_ids: set[str] = set()
             seen_codes: set[str] = set()
             for row_number, values in enumerate(names_ws.iter_rows(min_row=2, values_only=True), start=2):
-                if legacy_names:
+                if not extended_names:
                     node_id, code, text = values[:3]
                     label = None
                 else:
@@ -242,6 +242,7 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
     edges_ws = workbook.create_sheet("Связи")
     coded_edges_ws = workbook.create_sheet("Связи по кодам")
     labeled_edges_ws = workbook.create_sheet("Связи по названиям")
+    described_edges_ws = workbook.create_sheet("Связи по описанию")
     names_ws = workbook.create_sheet("Названия")
     settings_ws = workbook.create_sheet("Настройки")
 
@@ -260,12 +261,12 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
     edges_ws.append(EDGE_HEADERS)
     coded_edges_ws.append(EDGE_HEADERS)
     labeled_edges_ws.append(EDGE_HEADERS)
+    described_edges_ws.append(EDGE_HEADERS)
     names_ws.append(NAME_HEADERS)
     for node_id, attrs in graph.nodes(data=True):
         names_ws.append(
             [
                 str(node_id),
-                str(attrs.get("label", node_id)),
                 str(attrs.get("code", node_id)),
                 str(attrs.get("text", attrs.get("label", node_id))),
             ]
@@ -290,6 +291,14 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
                 bold,
             ]
         )
+        described_edges_ws.append(
+            [
+                str(graph.nodes[source].get("text", graph.nodes[source].get("label", source))),
+                str(graph.nodes[target].get("text", graph.nodes[target].get("label", target))),
+                weight,
+                bold,
+            ]
+        )
 
     settings_ws.append(["key", "value"])
     settings_ws.append(["schema_version", SCHEMA_VERSION])
@@ -307,17 +316,22 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
         widths=(24, 24, 14, 14),
         table_name="CodedEdgesTable",
     )
-    _format_data_sheet(names_ws, widths=(18, 36, 22, 48), table_name="NamesTable")
+    _format_data_sheet(names_ws, widths=(18, 22, 48), table_name="NamesTable")
     _format_data_sheet(
         labeled_edges_ws,
         widths=(36, 36, 14, 14),
         table_name="LabeledEdgesTable",
     )
+    _format_data_sheet(
+        described_edges_ws,
+        widths=(48, 48, 14, 14),
+        table_name="DescribedEdgesTable",
+    )
     _format_data_sheet(settings_ws, widths=(22, 38), table_name="SettingsTable")
-    for ws in (edges_ws, coded_edges_ws, labeled_edges_ws):
+    for ws in (edges_ws, coded_edges_ws, labeled_edges_ws, described_edges_ws):
         for row in ws.iter_rows(min_row=2, min_col=3, max_col=3):
             row[0].number_format = "0.000"
-    for ws in (nodes_ws, edges_ws, coded_edges_ws, labeled_edges_ws, names_ws, settings_ws):
+    for ws in (nodes_ws, edges_ws, coded_edges_ws, labeled_edges_ws, described_edges_ws, names_ws, settings_ws):
         ws.sheet_view.showGridLines = False
     return workbook
 
