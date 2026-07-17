@@ -7,7 +7,12 @@ from typing import Any
 import networkx as nx
 import streamlit as st
 
-from graph_store import DEFAULT_NODE_COLOR, validate_color
+from graph_store import (
+    DEFAULT_NODE_COLOR,
+    MAX_NODE_COORDINATE,
+    MIN_NODE_COORDINATE,
+    validate_color,
+)
 
 
 GRAPH_EDITOR_HTML = """
@@ -163,6 +168,8 @@ const PLOT_HEIGHT = HEIGHT - 2 * PAD_Y;
 const NODE_RADIUS = 40;
 const LABEL_LINE_LENGTH = 11;
 const LABEL_MAX_LINES = 4;
+const MIN_NODE_COORDINATE = -1;
+const MAX_NODE_COORDINATE = 2;
 
 function svgElement(name, attributes = {}) {
   const element = document.createElementNS(SVG_NS, name);
@@ -190,8 +197,8 @@ function localPosition(element, event) {
 function graphPosition(viewport, event) {
   const local = localPosition(viewport, event);
   return {
-    x: Math.max(0, Math.min(1, (local.x - PAD_X) / PLOT_WIDTH)),
-    y: Math.max(0, Math.min(1, (HEIGHT - PAD_Y - local.y) / PLOT_HEIGHT)),
+    x: Math.max(MIN_NODE_COORDINATE, Math.min(MAX_NODE_COORDINATE, (local.x - PAD_X) / PLOT_WIDTH)),
+    y: Math.max(MIN_NODE_COORDINATE, Math.min(MAX_NODE_COORDINATE, (HEIGHT - PAD_Y - local.y) / PLOT_HEIGHT)),
   };
 }
 
@@ -533,8 +540,8 @@ def apply_position_updates(graph: nx.DiGraph, positions: Any) -> int:
             continue
         if not math.isfinite(x) or not math.isfinite(y):
             continue
-        x = max(0.0, min(1.0, x))
-        y = max(0.0, min(1.0, y))
+        x = max(MIN_NODE_COORDINATE, min(MAX_NODE_COORDINATE, x))
+        y = max(MIN_NODE_COORDINATE, min(MAX_NODE_COORDINATE, y))
         try:
             old_x = float(graph.nodes[node_id].get("x", x))
             old_y = float(graph.nodes[node_id].get("y", y))

@@ -29,6 +29,8 @@ NODE_COLOR_PALETTE = (
 )
 DEFAULT_NODE_COLOR = NODE_COLOR_PALETTE[0]
 COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+MIN_NODE_COORDINATE = -1.0
+MAX_NODE_COORDINATE = 2.0
 
 
 class GraphWorkbookError(ValueError):
@@ -256,7 +258,7 @@ def _coordinate(value: Any, row_number: int, name: str) -> float | None:
         raise GraphWorkbookError(f"Некорректная координата {name} в строке {row_number}.") from exc
     if not math.isfinite(coordinate):
         raise GraphWorkbookError(f"Некорректная координата {name} в строке {row_number}.")
-    return max(0.0, min(1.0, coordinate))
+    return max(MIN_NODE_COORDINATE, min(MAX_NODE_COORDINATE, coordinate))
 
 
 def _require_headers(ws: Any, expected: tuple[str, ...]) -> None:
