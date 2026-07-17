@@ -239,7 +239,6 @@ export default function(component) {
   const viewport = parentElement.querySelector(".graph-viewport");
   const edgesLayer = parentElement.querySelector(".graph-edges");
   const nodesLayer = parentElement.querySelector(".graph-nodes");
-  const background = parentElement.querySelector(".graph-background");
   const zoomOutButton = parentElement.querySelector(".graph-zoom-out");
   const zoomInButton = parentElement.querySelector(".graph-zoom-in");
   const resetViewButton = parentElement.querySelector(".graph-reset-view");
@@ -285,11 +284,15 @@ export default function(component) {
   function onWheel(event) {
     event.preventDefault();
     const center = localPosition(svg, event);
-    setZoom(zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12), center.x, center.y);
+    const deltaScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? HEIGHT : 1;
+    const normalizedDelta = Math.max(-120, Math.min(120, event.deltaY * deltaScale));
+    const zoomFactor = Math.exp(-normalizedDelta * 0.001);
+    setZoom(zoom * zoomFactor, center.x, center.y);
   }
 
   function startPan(event) {
     if (event.button !== 0) return;
+    if (event.target.closest(".graph-node")) return;
     event.preventDefault();
     const point = localPosition(svg, event);
     activePan = {
@@ -473,7 +476,7 @@ export default function(component) {
   applyGridVisibility();
   drawEdges();
   drawNodes();
-  background.addEventListener("pointerdown", startPan);
+  svg.addEventListener("pointerdown", startPan);
   svg.addEventListener("wheel", onWheel, { passive: false });
   svg.addEventListener("pointermove", onPointerMove);
   svg.addEventListener("pointerup", finishDrag);
@@ -492,7 +495,7 @@ export default function(component) {
   };
 
   return () => {
-    background.removeEventListener("pointerdown", startPan);
+    svg.removeEventListener("pointerdown", startPan);
     svg.removeEventListener("wheel", onWheel);
     svg.removeEventListener("pointermove", onPointerMove);
     svg.removeEventListener("pointerup", finishDrag);
