@@ -253,6 +253,17 @@ def sync_selected_edge() -> None:
     st.session_state.status = f"Выбрана связь {source} → {target}."
 
 
+def swap_edge_nodes() -> None:
+    """Меняет местами вершины в редакторе связи."""
+    source = st.session_state.get("edge_source")
+    target = st.session_state.get("edge_target")
+    if not source or not target:
+        return
+    st.session_state.edge_source = target
+    st.session_state.edge_target = source
+    st.session_state.edge_editor_revision += 1
+
+
 @st.fragment(run_every=AUTOSAVE_INTERVAL_SECONDS)
 def run_autosave(graph: nx.DiGraph) -> None:
     now = time.monotonic()
@@ -332,6 +343,13 @@ def render_sidebar(graph: nx.DiGraph) -> None:
             target_options = [option for option in options if node_id_from_option(option) != source]
             target_option = st.selectbox("В вершину", target_options, index=0, key="edge_target")
             target = node_id_from_option(target_option)
+            st.button(
+                "⇄ Поменять вершины местами",
+                width="stretch",
+                key="swap_edge_nodes",
+                on_click=swap_edge_nodes,
+                help="Меняет местами вершины «Из» и «В».",
+            )
 
             forward_attrs = graph.get_edge_data(source, target, default={})
             reverse_attrs = graph.get_edge_data(target, source, default={})
@@ -349,8 +367,8 @@ def render_sidebar(graph: nx.DiGraph) -> None:
 
             connection_type = st.radio(
                 "Направление связи",
-                ("Односторонняя →", "Двусторонняя ↔"),
-                index=1 if has_reverse else 0,
+                ("Прямая →", "Двусторонняя ↔", "Обратная ←"),
+                index=1 if has_forward and has_reverse else (2 if has_reverse else 0),
                 horizontal=True,
                 key=f"edge_direction_{editor_key}",
             )
@@ -362,6 +380,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                     value=float(forward_attrs.get("weight", 0.5)),
                     step=0.05,
                     format="%.2f",
+                    disabled=connection_type.startswith("Обратная"),
                 )
                 reverse_weight = st.number_input(
                     f"Вес {target} → {source}",
@@ -370,28 +389,30 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                     value=float(reverse_attrs.get("weight", 0.5)),
                     step=0.05,
                     format="%.2f",
-                    disabled=connection_type.startswith("Односторонняя"),
+                    disabled=connection_type.startswith("Прямая"),
                 )
                 bold_arrow = st.checkbox(
                     f"Жирная стрелка {source} → {target}",
                     value=bool(forward_attrs.get("bold", False)),
+                    disabled=connection_type.startswith("Обратная"),
                 )
                 reverse_bold_arrow = st.checkbox(
                     f"Жирная стрелка {target} → {source}",
                     value=bool(reverse_attrs.get("bold", False)),
-                    disabled=connection_type.startswith("Односторонняя"),
+                    disabled=connection_type.startswith("Прямая"),
                 )
                 submitted = st.form_submit_button("Добавить / обновить связь", width="stretch")
                 if submitted:
                     try:
-                        add_connection(
-                            graph,
-                            source,
-                            target,
-                            forward_weight,
-                            bold=bold_arrow,
-                        )
-                        if connection_type.startswith("Двусторонняя"):
+                        if not connection_type.startswith("Обратная"):
+                            add_connection(
+                                graph,
+                                source,
+                                target,
+                                forward_weight,
+                                bold=bold_arrow,
+                            )
+                        if not connection_type.startswith("Прямая"):
                             add_connection(
                                 graph,
                                 target,
