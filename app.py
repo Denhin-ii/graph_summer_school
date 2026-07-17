@@ -31,8 +31,10 @@ AUTOSAVE_INTERVAL_SECONDS = 5 * 60
 GRAPH_COMPONENT_KEY = "draggable_graph"
 LAYOUT_WIDTH = 1000.0
 LAYOUT_HEIGHT = 550.0
-MIN_NODE_CENTER_DISTANCE = 196.0
+MIN_NODE_CENTER_DISTANCE = 194.0
 MIN_NODE_EDGE_DISTANCE = 82.0
+MIN_LAYOUT_COORDINATE = -0.96
+MAX_LAYOUT_COORDINATE = 1.96
 
 
 def initialize_state() -> None:
@@ -51,6 +53,8 @@ def initialize_state() -> None:
         st.session_state.quick_edge_selection = False
     if "quick_edge_source" not in st.session_state:
         st.session_state.quick_edge_source = None
+    if "node_spacing" not in st.session_state:
+        st.session_state.node_spacing = MIN_NODE_CENTER_DISTANCE
     if "last_autosave_monotonic" not in st.session_state:
         st.session_state.last_autosave_monotonic = time.monotonic()
     if "last_autosave_at" not in st.session_state:
@@ -92,7 +96,11 @@ def add_node(graph: nx.DiGraph, label: str, color: str = DEFAULT_NODE_COLOR) -> 
     )
     st.session_state.status = f"Добавлена вершина «{label.strip()}» ({node_id})."
 
-def apply_spring_layout(graph: nx.DiGraph, seed: int = 42) -> None:
+def apply_spring_layout(
+    graph: nx.DiGraph,
+    seed: int = 42,
+    minimum_distance: float = MIN_NODE_CENTER_DISTANCE,
+) -> None:
     if not graph:
         return
     if len(graph) == 1:
@@ -115,7 +123,11 @@ def apply_spring_layout(graph: nx.DiGraph, seed: int = 42) -> None:
         graph.nodes[node_id]["x"] = normalize(float(point[0]), x_min, x_max)
         graph.nodes[node_id]["y"] = normalize(float(point[1]), y_min, y_max)
     for _ in range(6):
-        separate_close_nodes(graph, iterations=40)
+        separate_close_nodes(
+            graph,
+            minimum_distance=minimum_distance,
+            iterations=40,
+        )
         separate_nodes_from_edges(graph, iterations=40)
 
 
@@ -147,10 +159,10 @@ def separate_close_nodes(
                 else:
                     unit_x, unit_y = dx / distance, dy / distance
                 shift = (minimum_distance - distance) / 2 + 0.1
-                graph.nodes[first]["x"] = max(0.04, min(0.96, first_x - unit_x * shift / LAYOUT_WIDTH))
-                graph.nodes[first]["y"] = max(0.04, min(0.96, first_y - unit_y * shift / LAYOUT_HEIGHT))
-                graph.nodes[second]["x"] = max(0.04, min(0.96, second_x + unit_x * shift / LAYOUT_WIDTH))
-                graph.nodes[second]["y"] = max(0.04, min(0.96, second_y + unit_y * shift / LAYOUT_HEIGHT))
+                graph.nodes[first]["x"] = max(MIN_LAYOUT_COORDINATE, min(MAX_LAYOUT_COORDINATE, first_x - unit_x * shift / LAYOUT_WIDTH))
+                graph.nodes[first]["y"] = max(MIN_LAYOUT_COORDINATE, min(MAX_LAYOUT_COORDINATE, first_y - unit_y * shift / LAYOUT_HEIGHT))
+                graph.nodes[second]["x"] = max(MIN_LAYOUT_COORDINATE, min(MAX_LAYOUT_COORDINATE, second_x + unit_x * shift / LAYOUT_WIDTH))
+                graph.nodes[second]["y"] = max(MIN_LAYOUT_COORDINATE, min(MAX_LAYOUT_COORDINATE, second_y + unit_y * shift / LAYOUT_HEIGHT))
                 changed = True
         if not changed:
             break
@@ -200,8 +212,8 @@ def separate_nodes_from_edges(
                 else:
                     unit_x, unit_y = away_x / distance, away_y / distance
                 shift = minimum_distance - distance + 0.2
-                graph.nodes[node_id]["x"] = max(0.04, min(0.96, (node_x + unit_x * shift) / LAYOUT_WIDTH))
-                graph.nodes[node_id]["y"] = max(0.04, min(0.96, (node_y + unit_y * shift) / LAYOUT_HEIGHT))
+                graph.nodes[node_id]["x"] = max(MIN_LAYOUT_COORDINATE, min(MAX_LAYOUT_COORDINATE, (node_x + unit_x * shift) / LAYOUT_WIDTH))
+                graph.nodes[node_id]["y"] = max(MIN_LAYOUT_COORDINATE, min(MAX_LAYOUT_COORDINATE, (node_y + unit_y * shift) / LAYOUT_HEIGHT))
                 changed = True
         if not changed:
             break
@@ -560,7 +572,11 @@ def confirm_graph_rebuild() -> None:
         if st.button("Да, перестроить", type="primary", width="stretch"):
             graph: nx.DiGraph = st.session_state.graph
             st.session_state.layout_seed += 1
-            apply_spring_layout(graph, seed=st.session_state.layout_seed)
+            apply_spring_layout(
+                graph,
+                seed=st.session_state.layout_seed,
+                minimum_distance=float(st.session_state.node_spacing),
+            )
             st.session_state.status = "Расположение пересчитано алгоритмом spring_layout."
             st.rerun()
     with cancel_col:
@@ -587,6 +603,8 @@ def render_main(graph: nx.DiGraph) -> None:
             on_positions_change=sync_dragged_positions,
             on_selected_node_change=sync_selected_node,
             on_selected_edge_change=sync_selected_edge,
+            node_spacing=float(st.session_state.node_spacing),
+            on_node_spacing_change=sync_node_spacing,
         )
         st.caption(
             "Перетаскивайте вершины мышью · двигайте поле за пустое место · меняйте масштаб колёсиком "
@@ -610,6 +628,19 @@ def sync_dragged_positions() -> None:
     graph: nx.DiGraph | None = st.session_state.get("graph")
     if graph is not None and apply_position_updates(graph, positions):
         st.session_state.status = "Новое расположение вершин сохранено в текущем графе."
+
+
+def sync_node_spacing() -> None:
+    value = component_state_value("node_spacing")
+    try:
+        spacing = float(value)
+    except (TypeError, ValueError):
+        return
+    st.session_state.node_spacing = max(60.0, min(500.0, spacing))
+    st.session_state.status = (
+        f"Интервал между вершинами: {st.session_state.node_spacing:.0f}. "
+        "Нажмите «Перестроить граф», чтобы применить."
+    )
 
 
 def main() -> None:

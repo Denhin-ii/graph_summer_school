@@ -55,6 +55,20 @@ class GraphStoreTests(unittest.TestCase):
                 dy = (graph.nodes[second]["y"] - graph.nodes[first]["y"]) * LAYOUT_HEIGHT
                 self.assertGreaterEqual(math.hypot(dx, dy), MIN_NODE_CENTER_DISTANCE - 0.5)
 
+    def test_rebuild_uses_custom_node_spacing(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_nodes_from(f"N{index:03d}" for index in range(1, 7))
+
+        custom_spacing = 260.0
+        apply_spring_layout(graph, minimum_distance=custom_spacing)
+
+        nodes = list(graph)
+        for first_index, first in enumerate(nodes):
+            for second in nodes[first_index + 1 :]:
+                dx = (graph.nodes[second]["x"] - graph.nodes[first]["x"]) * LAYOUT_WIDTH
+                dy = (graph.nodes[second]["y"] - graph.nodes[first]["y"]) * LAYOUT_HEIGHT
+                self.assertGreaterEqual(math.hypot(dx, dy), custom_spacing - 0.5)
+
     def test_excel_round_trip_preserves_nodes_edges_positions_and_zero(self) -> None:
         graph = nx.DiGraph()
         graph.add_node("N001", label="Ремонт дорог", x=1.2, y=-0.3)

@@ -22,11 +22,30 @@ GRAPH_EDITOR_HTML = """
     <span class="graph-zoom-value" aria-live="polite">100%</span>
     <button type="button" class="graph-zoom-in" title="Увеличить" aria-label="Увеличить">+</button>
     <button type="button" class="graph-reset-view" title="Показать весь граф">Весь граф</button>
+    <button type="button" class="graph-toggle-scales" title="Настроить размеры элементов"
+            aria-expanded="false">Масштабы</button>
     <button type="button" class="graph-toggle-focus" title="Показывать связи только выбранной вершины"
             aria-pressed="false">Связи вершины: выкл.</button>
     <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
             aria-pressed="true">Сетка: вкл.</button>
     <button type="button" class="graph-toggle-fullscreen" title="Открыть граф на весь экран">На весь экран</button>
+  </div>
+  <div class="graph-scale-panel" hidden aria-label="Настройка размеров элементов графа">
+    <label>Текст вершин <output class="graph-node-text-scale-value">100%</output>
+      <input class="graph-node-text-scale" type="range" min="0.6" max="2" step="0.1" value="1" />
+    </label>
+    <label>Цифры связей <output class="graph-edge-text-scale-value">100%</output>
+      <input class="graph-edge-text-scale" type="range" min="0.6" max="2" step="0.1" value="1" />
+    </label>
+    <label>Толщина линий <output class="graph-line-scale-value">100%</output>
+      <input class="graph-line-scale" type="range" min="0.5" max="3" step="0.1" value="1" />
+    </label>
+    <label>Размер вершин <output class="graph-node-scale-value">100%</output>
+      <input class="graph-node-scale" type="range" min="0.6" max="2" step="0.1" value="1" />
+    </label>
+    <label>Интервал вершин <output class="graph-node-spacing-value">194</output>
+      <input class="graph-node-spacing" type="range" min="60" max="500" step="10" value="194" />
+    </label>
   </div>
   <svg class="graph-editor-canvas" viewBox="0 0 1100 650" role="application"
        aria-label="Интерактивный редактор расположения вершин графа">
@@ -107,6 +126,44 @@ GRAPH_EDITOR_CSS = """
 .graph-controls button:focus-visible {
   outline: 3px solid rgba(76, 120, 168, 0.35);
   outline-offset: 1px;
+}
+
+.graph-scale-panel {
+  position: absolute;
+  z-index: 3;
+  top: 62px;
+  right: 12px;
+  width: 250px;
+  padding: 10px 12px;
+  border: 1px solid #BCCCDC;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 3px 10px rgba(36, 59, 83, 0.18);
+  color: #243B53;
+  font: 600 12px sans-serif;
+}
+
+.graph-scale-panel label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 3px 8px;
+  margin: 0 0 8px;
+}
+
+.graph-scale-panel label:last-child {
+  margin-bottom: 0;
+}
+
+.graph-scale-panel input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+}
+
+.graph-scale-panel output {
+  color: #486581;
+  font-variant-numeric: tabular-nums;
 }
 
 .graph-zoom-value {
@@ -274,6 +331,13 @@ export default function(component) {
   const zoomOutButton = parentElement.querySelector(".graph-zoom-out");
   const zoomInButton = parentElement.querySelector(".graph-zoom-in");
   const resetViewButton = parentElement.querySelector(".graph-reset-view");
+  const toggleScalesButton = parentElement.querySelector(".graph-toggle-scales");
+  const scalePanel = parentElement.querySelector(".graph-scale-panel");
+  const nodeTextScaleInput = parentElement.querySelector(".graph-node-text-scale");
+  const edgeTextScaleInput = parentElement.querySelector(".graph-edge-text-scale");
+  const lineScaleInput = parentElement.querySelector(".graph-line-scale");
+  const nodeScaleInput = parentElement.querySelector(".graph-node-scale");
+  const nodeSpacingInput = parentElement.querySelector(".graph-node-spacing");
   const toggleFocusButton = parentElement.querySelector(".graph-toggle-focus");
   const toggleGridButton = parentElement.querySelector(".graph-toggle-grid");
   const toggleFullscreenButton = parentElement.querySelector(".graph-toggle-fullscreen");
@@ -290,7 +354,44 @@ export default function(component) {
   let gridVisible = svg.dataset.gridVisible !== "false";
   let focusMode = svg.dataset.focusMode === "true";
   let focusedNodeId = svg.dataset.focusedNodeId || null;
+  let nodeTextScale = Number(svg.dataset.nodeTextScale || 1);
+  let edgeTextScale = Number(svg.dataset.edgeTextScale || 1);
+  let lineScale = Number(svg.dataset.lineScale || 1);
+  let nodeScale = Number(svg.dataset.nodeScale || 1);
+  let nodeSpacing = Number(svg.dataset.nodeSpacing || data.nodeSpacing || 194);
   if (focusedNodeId && !nodes.has(focusedNodeId)) focusedNodeId = null;
+
+  function currentNodeRadius() {
+    return NODE_RADIUS * nodeScale;
+  }
+
+  function scalePercent(value) {
+    return `${Math.round(value * 100)}%`;
+  }
+
+  function applyScaleSettings() {
+    nodeTextScaleInput.value = String(nodeTextScale);
+    edgeTextScaleInput.value = String(edgeTextScale);
+    lineScaleInput.value = String(lineScale);
+    nodeScaleInput.value = String(nodeScale);
+    nodeSpacingInput.value = String(nodeSpacing);
+    parentElement.querySelector(".graph-node-text-scale-value").textContent = scalePercent(nodeTextScale);
+    parentElement.querySelector(".graph-edge-text-scale-value").textContent = scalePercent(edgeTextScale);
+    parentElement.querySelector(".graph-line-scale-value").textContent = scalePercent(lineScale);
+    parentElement.querySelector(".graph-node-scale-value").textContent = scalePercent(nodeScale);
+    parentElement.querySelector(".graph-node-spacing-value").textContent = String(Math.round(nodeSpacing));
+    svg.dataset.nodeTextScale = String(nodeTextScale);
+    svg.dataset.edgeTextScale = String(edgeTextScale);
+    svg.dataset.lineScale = String(lineScale);
+    svg.dataset.nodeScale = String(nodeScale);
+    svg.dataset.nodeSpacing = String(nodeSpacing);
+  }
+
+  function redrawScaledGraph() {
+    applyScaleSettings();
+    drawEdges();
+    drawNodes();
+  }
 
   function applyGridVisibility() {
     root.classList.toggle("graph-grid-hidden", !gridVisible);
@@ -433,13 +534,13 @@ export default function(component) {
     const endLength = Math.max(Math.hypot(endVector.x, endVector.y), 0.001);
     return {
       start: {
-        x: source.x + NODE_RADIUS * startVector.x / startLength,
-        y: source.y + NODE_RADIUS * startVector.y / startLength,
+        x: source.x + currentNodeRadius() * startVector.x / startLength,
+        y: source.y + currentNodeRadius() * startVector.y / startLength,
       },
       control,
       end: {
-        x: target.x - NODE_RADIUS * endVector.x / endLength,
-        y: target.y - NODE_RADIUS * endVector.y / endLength,
+        x: target.x - currentNodeRadius() * endVector.x / endLength,
+        y: target.y - currentNodeRadius() * endVector.y / endLength,
       },
     };
   }
@@ -452,8 +553,9 @@ export default function(component) {
     const unitY = dy / distance;
     const normalX = -unitY;
     const normalY = unitX;
-    const boundedLane = Math.max(-NODE_RADIUS + 2, Math.min(NODE_RADIUS - 2, lane));
-    const radialDistance = Math.sqrt(Math.max(NODE_RADIUS * NODE_RADIUS - boundedLane * boundedLane, 1));
+    const radius = currentNodeRadius();
+    const boundedLane = Math.max(-radius + 2, Math.min(radius - 2, lane));
+    const radialDistance = Math.sqrt(Math.max(radius * radius - boundedLane * boundedLane, 1));
     const start = {
       x: source.x + unitX * radialDistance + normalX * boundedLane,
       y: source.y + unitY * radialDistance + normalY * boundedLane,
@@ -499,8 +601,8 @@ export default function(component) {
     const reverseGeometry = straightGeometryWithLane(target, source, 12);
     const reverseEdge = { ...edge, source: edge.target, target: edge.source };
     if (
-      edgeClearance(straightGeometry, edge) >= NODE_RADIUS + 16
-      && edgeClearance(reverseGeometry, reverseEdge) >= NODE_RADIUS + 16
+      edgeClearance(straightGeometry, edge) >= currentNodeRadius() + 16
+      && edgeClearance(reverseGeometry, reverseEdge) >= currentNodeRadius() + 16
     ) {
       return { curved: false, side: 1 };
     }
@@ -557,7 +659,7 @@ export default function(component) {
         bestGeometry = geometry;
         bestClearance = clearance;
       }
-      if (clearance >= NODE_RADIUS + 16) {
+      if (clearance >= currentNodeRadius() + 16) {
         geometry.labelSide = edge.reciprocal ? -reciprocalPlan.side : 0;
         return geometry;
       }
@@ -605,7 +707,7 @@ export default function(component) {
       const nodeClearance = Math.min(
         ...Array.from(nodes.values(), (node) => {
           const center = screenPosition(node);
-          return Math.hypot(candidate.x - center.x, candidate.y - center.y) - NODE_RADIUS;
+          return Math.hypot(candidate.x - center.x, candidate.y - center.y) - currentNodeRadius();
         }),
       );
       const labelClearance = occupiedLabels.length
@@ -661,7 +763,7 @@ export default function(component) {
     const allGeometries = edgeLayouts.map((layout) => layout.geometry);
     edgeLayouts.forEach(({ edge, index, geometry }) => {
       const color = edge.zero ? "#7A7F87" : edge.color;
-      const width = edge.bold ? 5 : 2;
+      const width = (edge.bold ? 5 : 2) * lineScale;
       const group = svgElement("g", {
         class: "graph-edge",
         role: "button",
@@ -696,8 +798,8 @@ export default function(component) {
           viewBox: "0 0 12 12",
           refX: 10,
           refY: 6,
-          markerWidth: 12,
-          markerHeight: 12,
+          markerWidth: 12 * Math.sqrt(lineScale),
+          markerHeight: 12 * Math.sqrt(lineScale),
           orient: "auto-start-reverse",
           markerUnits: "userSpaceOnUse",
         });
@@ -713,6 +815,7 @@ export default function(component) {
         y: labelPosition.y,
         fill: color,
         class: "graph-edge-label",
+        style: `font-size: ${13 * edgeTextScale}px; stroke-width: ${7 * edgeTextScale}px`,
       });
       label.textContent = `${Number(edge.weight) >= 0 ? "+" : ""}${Number(edge.weight).toFixed(2)}`;
       group.appendChild(label);
@@ -742,16 +845,19 @@ export default function(component) {
         "aria-label": `${node.label}. Перетащите вершину мышью.`,
         "data-node-id": node.id,
       });
-      group.appendChild(svgElement("circle", { r: NODE_RADIUS, fill: node.color }));
+      group.appendChild(svgElement("circle", { r: currentNodeRadius(), fill: node.color }));
       const title = svgElement("title");
       title.textContent = `${node.label} (${node.id})`;
       group.appendChild(title);
       const lines = labelLines(node.label);
-      const text = svgElement("text", { fill: contrastColor(node.color) });
+      const text = svgElement("text", {
+        fill: contrastColor(node.color),
+        style: `font-size: ${11 * nodeTextScale}px`,
+      });
       lines.forEach((line, index) => {
         const tspan = svgElement("tspan", {
           x: 0,
-          y: (index - (lines.length - 1) / 2) * 13,
+          y: (index - (lines.length - 1) / 2) * 13 * nodeTextScale,
         });
         tspan.textContent = line;
         text.appendChild(tspan);
@@ -847,6 +953,7 @@ export default function(component) {
   applyView();
   applyGridVisibility();
   applyFocusMode();
+  applyScaleSettings();
   updateFullscreenButton();
   drawEdges();
   drawNodes();
@@ -858,6 +965,33 @@ export default function(component) {
   zoomOutButton.onclick = () => setZoom(zoom / 1.25);
   zoomInButton.onclick = () => setZoom(zoom * 1.25);
   resetViewButton.onclick = fitGraphToView;
+  toggleScalesButton.onclick = () => {
+    scalePanel.hidden = !scalePanel.hidden;
+    toggleScalesButton.setAttribute("aria-expanded", String(!scalePanel.hidden));
+  };
+  nodeTextScaleInput.oninput = () => {
+    nodeTextScale = Number(nodeTextScaleInput.value);
+    redrawScaledGraph();
+  };
+  edgeTextScaleInput.oninput = () => {
+    edgeTextScale = Number(edgeTextScaleInput.value);
+    redrawScaledGraph();
+  };
+  lineScaleInput.oninput = () => {
+    lineScale = Number(lineScaleInput.value);
+    redrawScaledGraph();
+  };
+  nodeScaleInput.oninput = () => {
+    nodeScale = Number(nodeScaleInput.value);
+    redrawScaledGraph();
+  };
+  nodeSpacingInput.oninput = () => {
+    nodeSpacing = Number(nodeSpacingInput.value);
+    applyScaleSettings();
+  };
+  nodeSpacingInput.onchange = () => {
+    setStateValue("node_spacing", nodeSpacing);
+  };
   toggleFocusButton.onclick = () => {
     focusMode = !focusMode;
     if (!focusMode) focusedNodeId = null;
@@ -880,6 +1014,13 @@ export default function(component) {
     zoomOutButton.onclick = null;
     zoomInButton.onclick = null;
     resetViewButton.onclick = null;
+    toggleScalesButton.onclick = null;
+    nodeTextScaleInput.oninput = null;
+    edgeTextScaleInput.oninput = null;
+    lineScaleInput.oninput = null;
+    nodeScaleInput.oninput = null;
+    nodeSpacingInput.oninput = null;
+    nodeSpacingInput.onchange = null;
     toggleFocusButton.onclick = null;
     toggleGridButton.onclick = null;
     toggleFullscreenButton.onclick = null;
@@ -934,6 +1075,8 @@ def render_draggable_graph(
     on_positions_change: Callable[[], None],
     on_selected_node_change: Callable[[], None],
     on_selected_edge_change: Callable[[], None],
+    node_spacing: float,
+    on_node_spacing_change: Callable[[], None],
 ) -> None:
     nodes = [
         {
@@ -960,10 +1103,16 @@ def render_draggable_graph(
     positions = {node["id"]: {"x": node["x"], "y": node["y"]} for node in nodes}
     draggable_graph_component(
         key=key,
-        data={"nodes": nodes, "edges": edges},
-        default={"positions": positions, "selected_node": None, "selected_edge": None},
+        data={"nodes": nodes, "edges": edges, "nodeSpacing": node_spacing},
+        default={
+            "positions": positions,
+            "selected_node": None,
+            "selected_edge": None,
+            "node_spacing": node_spacing,
+        },
         height=650,
         on_positions_change=on_positions_change,
         on_selected_node_change=on_selected_node_change,
         on_selected_edge_change=on_selected_edge_change,
+        on_node_spacing_change=on_node_spacing_change,
     )
