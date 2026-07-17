@@ -14,7 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 NODE_HEADERS = ("id", "label", "x", "y", "color")
 EDGE_HEADERS = ("source", "target", "weight", "bold")
 NODE_COLOR_PALETTE = (
@@ -65,6 +65,15 @@ def validate_bold(value: Any, default: bool = False) -> bool:
     if normalized in {"false", "no", "нет", "0"}:
         return False
     raise GraphWorkbookError("Признак жирной стрелки должен быть TRUE или FALSE.")
+
+
+def rename_node(graph: nx.DiGraph, node_id: str, new_label: Any) -> None:
+    if node_id not in graph:
+        raise GraphWorkbookError("Выбранная вершина не найдена.")
+    label = str(new_label).strip() if new_label is not None else ""
+    if not label:
+        raise GraphWorkbookError("Введите новое название вершины.")
+    graph.nodes[node_id]["label"] = label
 
 
 def add_connection(
@@ -180,6 +189,7 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
     nodes_ws = workbook.active
     nodes_ws.title = "Вершины"
     edges_ws = workbook.create_sheet("Связи")
+    labeled_edges_ws = workbook.create_sheet("Связи по названиям")
     settings_ws = workbook.create_sheet("Настройки")
 
     nodes_ws.append(NODE_HEADERS)
@@ -195,8 +205,19 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
         )
 
     edges_ws.append(EDGE_HEADERS)
+    labeled_edges_ws.append(EDGE_HEADERS)
     for source, target, attrs in graph.edges(data=True):
-        edges_ws.append([str(source), str(target), validate_weight(attrs.get("weight", 0.0)), validate_bold(attrs.get("bold", False))])
+        weight = validate_weight(attrs.get("weight", 0.0))
+        bold = validate_bold(attrs.get("bold", False))
+        edges_ws.append([str(source), str(target), weight, bold])
+        labeled_edges_ws.append(
+            [
+                str(graph.nodes[source].get("label", source)),
+                str(graph.nodes[target].get("label", target)),
+                weight,
+                bold,
+            ]
+        )
 
     settings_ws.append(["key", "value"])
     settings_ws.append(["schema_version", SCHEMA_VERSION])
@@ -206,10 +227,16 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
 
     _format_data_sheet(nodes_ws, widths=(18, 36, 14, 14, 14), table_name="NodesTable")
     _format_data_sheet(edges_ws, widths=(18, 18, 14, 14), table_name="EdgesTable")
+    _format_data_sheet(
+        labeled_edges_ws,
+        widths=(36, 36, 14, 14),
+        table_name="LabeledEdgesTable",
+    )
     _format_data_sheet(settings_ws, widths=(22, 38), table_name="SettingsTable")
-    for row in edges_ws.iter_rows(min_row=2, min_col=3, max_col=3):
-        row[0].number_format = "0.000"
-    for ws in (nodes_ws, edges_ws, settings_ws):
+    for ws in (edges_ws, labeled_edges_ws):
+        for row in ws.iter_rows(min_row=2, min_col=3, max_col=3):
+            row[0].number_format = "0.000"
+    for ws in (nodes_ws, edges_ws, labeled_edges_ws, settings_ws):
         ws.sheet_view.showGridLines = False
     return workbook
 

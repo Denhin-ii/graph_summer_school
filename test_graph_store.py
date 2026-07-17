@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 
 import networkx as nx
+from openpyxl import load_workbook
 
 from graph_component import apply_position_updates
 from graph_store import (
@@ -13,6 +15,7 @@ from graph_store import (
     graph_to_excel_bytes,
     load_graph_from_excel,
     load_graph_from_excel_bytes,
+    rename_node,
     save_graph_to_excel,
 )
 
@@ -57,6 +60,39 @@ class GraphStoreTests(unittest.TestCase):
         graph.add_nodes_from(("A", "B"))
         with self.assertRaises(GraphWorkbookError):
             add_connection(graph, "A", "B", 1.01)
+
+    def test_excel_contains_edges_with_node_labels(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node("N001", label="Причина")
+        graph.add_node("N002", label="Следствие")
+        graph.add_edge("N001", "N002", weight=-0.4, bold=True)
+
+        workbook = load_workbook(BytesIO(graph_to_excel_bytes(graph)), data_only=True)
+        try:
+            self.assertIn("Связи по названиям", workbook.sheetnames)
+            row = list(workbook["Связи по названиям"].iter_rows(min_row=2, values_only=True))[0]
+            self.assertEqual(row, ("Причина", "Следствие", -0.4, True))
+        finally:
+            workbook.close()
+
+    def test_rename_node_preserves_id_attributes_and_edges(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node("N001", label="Старое имя", x=0.2, y=0.3, color="#4C78A8")
+        graph.add_node("N002", label="Другая вершина")
+        graph.add_edge("N001", "N002", weight=0.5, bold=False)
+
+        rename_node(graph, "N001", "  Новое имя  ")
+
+        self.assertEqual(graph.nodes["N001"]["label"], "Новое имя")
+        self.assertEqual(graph.nodes["N001"]["x"], 0.2)
+        self.assertTrue(graph.has_edge("N001", "N002"))
+
+    def test_rename_node_rejects_empty_label(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node("N001", label="Имя")
+
+        with self.assertRaises(GraphWorkbookError):
+            rename_node(graph, "N001", "   ")
 
     def test_browser_position_updates_are_validated_and_clamped(self) -> None:
         graph = nx.DiGraph()

@@ -16,6 +16,7 @@ from graph_store import (
     graph_to_excel_bytes,
     load_graph_from_excel,
     load_graph_from_excel_bytes,
+    rename_node,
     save_graph_to_excel,
     validate_color,
 )
@@ -134,6 +135,18 @@ def render_sidebar(graph: nx.DiGraph) -> None:
             options = [node_option(graph, node) for node in graph]
             selected_node_option = st.selectbox("Выбранная вершина", options, key="node_editor")
             selected_node_id = node_id_from_option(selected_node_option)
+            current_label = str(graph.nodes[selected_node_id].get("label", selected_node_id))
+            with st.form(f"rename_node_form_{selected_node_id}"):
+                edited_label = st.text_input("Новое название", value=current_label)
+                rename_submitted = st.form_submit_button("Переименовать вершину", width="stretch")
+                if rename_submitted:
+                    try:
+                        rename_node(graph, selected_node_id, edited_label)
+                    except GraphWorkbookError as exc:
+                        st.error(str(exc))
+                    else:
+                        st.session_state.status = f"Вершина «{current_label}» переименована в «{edited_label.strip()}»."
+                        st.rerun()
             current_color = validate_color(graph.nodes[selected_node_id].get("color", DEFAULT_NODE_COLOR))
             edited_color = st.color_picker(
                 "Цвет выбранной вершины",
