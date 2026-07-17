@@ -36,6 +36,8 @@ def initialize_state() -> None:
 
     if "layout_seed" not in st.session_state:
         st.session_state.layout_seed = 42
+    if "edge_editor_revision" not in st.session_state:
+        st.session_state.edge_editor_revision = 0
 
 def next_node_id(graph: nx.DiGraph) -> str:
     while f"N{st.session_state.next_node_id:03d}" in graph:
@@ -146,6 +148,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
             if st.button("Удалить выбранную вершину", width="stretch"):
                 label_value = graph.nodes[selected_node_id].get("label", selected_node_id)
                 graph.remove_node(selected_node_id)
+                st.session_state.edge_editor_revision += 1
                 st.session_state.status = f"Вершина «{label_value}» и её связи удалены."
                 st.rerun()
     with st.sidebar.expander("2. Связи", expanded=True):
@@ -153,26 +156,62 @@ def render_sidebar(graph: nx.DiGraph) -> None:
             st.caption("Для связи нужны минимум две вершины.")
         else:
             options = [node_option(graph, node) for node in graph]
-            with st.form("edge_form"):
-                source_option = st.selectbox("Из вершины", options, index=0)
-                target_option = st.selectbox("В вершину", options, index=1)
-                connection_type = st.radio("Направление связи", ("Односторонняя →", "Двусторонняя ↔"), horizontal=True)
+            source_option = st.selectbox("Из вершины", options, index=0, key="edge_source")
+            source = node_id_from_option(source_option)
+            target_options = [option for option in options if node_id_from_option(option) != source]
+            target_option = st.selectbox("В вершину", target_options, index=0, key="edge_target")
+            target = node_id_from_option(target_option)
+
+            forward_attrs = graph.get_edge_data(source, target, default={})
+            reverse_attrs = graph.get_edge_data(target, source, default={})
+            has_forward = graph.has_edge(source, target)
+            has_reverse = graph.has_edge(target, source)
+            editor_key = f"{source}_{target}_{st.session_state.edge_editor_revision}"
+
+            if has_forward or has_reverse:
+                existing_directions = []
+                if has_forward:
+                    existing_directions.append(f"{source} → {target}")
+                if has_reverse:
+                    existing_directions.append(f"{target} → {source}")
+                st.caption(f"Загружены существующие связи: {', '.join(existing_directions)}.")
+
+            connection_type = st.radio(
+                "Направление связи",
+                ("Односторонняя →", "Двусторонняя ↔"),
+                index=1 if has_reverse else 0,
+                horizontal=True,
+                key=f"edge_direction_{editor_key}",
+            )
+            with st.form(f"edge_form_{editor_key}"):
                 forward_weight = st.number_input(
-                    "Вес вперёд", min_value=-1.0, max_value=1.0, value=0.5, step=0.05, format="%.2f"
+                    f"Вес {source} → {target}",
+                    min_value=-1.0,
+                    max_value=1.0,
+                    value=float(forward_attrs.get("weight", 0.5)),
+                    step=0.05,
+                    format="%.2f",
                 )
                 reverse_weight = st.number_input(
-                    "Вес обратно", min_value=-1.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
+                    f"Вес {target} → {source}",
+                    min_value=-1.0,
+                    max_value=1.0,
+                    value=float(reverse_attrs.get("weight", 0.5)),
+                    step=0.05,
+                    format="%.2f",
                     disabled=connection_type.startswith("Односторонняя"),
                 )
-                bold_arrow = st.checkbox("Жирная стрелка вперёд")
+                bold_arrow = st.checkbox(
+                    f"Жирная стрелка {source} → {target}",
+                    value=bool(forward_attrs.get("bold", False)),
+                )
                 reverse_bold_arrow = st.checkbox(
-                    "Жирная стрелка обратно",
+                    f"Жирная стрелка {target} → {source}",
+                    value=bool(reverse_attrs.get("bold", False)),
                     disabled=connection_type.startswith("Односторонняя"),
                 )
                 submitted = st.form_submit_button("Добавить / обновить связь", width="stretch")
                 if submitted:
-                    source = node_id_from_option(source_option)
-                    target = node_id_from_option(target_option)
                     try:
                         add_connection(
                             graph,
@@ -192,6 +231,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                     except GraphWorkbookError as exc:
                         st.error(str(exc))
                     else:
+                        st.session_state.edge_editor_revision += 1
                         st.session_state.status = "Связь добавлена или обновлена."
                         st.rerun()
 
@@ -206,6 +246,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                 edge_index = edge_options.index(selected_edge)
                 source, target, _attrs = edge_records[edge_index]
                 graph.remove_edge(source, target)
+                st.session_state.edge_editor_revision += 1
                 st.session_state.status = f"Связь {source} → {target} удалена."
                 st.rerun()
 
@@ -220,6 +261,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                 st.session_state.graph = loaded
                 reset_next_node_id(loaded)
                 ensure_positions(loaded)
+                st.session_state.edge_editor_revision += 1
                 st.session_state.status = f"Загружен файл {uploaded.name}."
                 st.rerun()
 
@@ -232,6 +274,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                 st.session_state.graph = loaded
                 reset_next_node_id(loaded)
                 ensure_positions(loaded)
+                st.session_state.edge_editor_revision += 1
                 st.session_state.status = f"Загружено: {DEFAULT_DATABASE.name}."
                 st.rerun()
 
