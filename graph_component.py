@@ -552,13 +552,13 @@ export default function(component) {
 
   function edgeLabelPosition(geometry, occupiedLabels, allGeometries) {
     const candidates = [];
-    const offsetMagnitudes = [18, 24, 30, 36, 48, 60, 72, 88];
+    const offsetMagnitudes = [16, 20, 24, 28, 32, 36, 40, 44];
     const offsets = geometry.labelSide
       ? offsetMagnitudes.map((offset) => offset * geometry.labelSide)
       : offsetMagnitudes.flatMap((offset) => [offset, -offset]);
     const positionsAlongEdge = [0.5];
-    for (let step = 1; step <= 6; step += 1) {
-      positionsAlongEdge.push(0.5 - step * 0.05, 0.5 + step * 0.05);
+    for (let step = 1; step <= 12; step += 1) {
+      positionsAlongEdge.push(0.5 - step * 0.025, 0.5 + step * 0.025);
     }
     for (const offset of offsets) {
       for (const t of positionsAlongEdge) {
