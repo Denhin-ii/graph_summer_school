@@ -418,6 +418,32 @@ export default function(component) {
     };
   }
 
+  function straightGeometryWithLane(source, target, lane) {
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.max(Math.hypot(dx, dy), 0.001);
+    const unitX = dx / distance;
+    const unitY = dy / distance;
+    const normalX = -unitY;
+    const normalY = unitX;
+    const boundedLane = Math.max(-NODE_RADIUS + 2, Math.min(NODE_RADIUS - 2, lane));
+    const radialDistance = Math.sqrt(Math.max(NODE_RADIUS * NODE_RADIUS - boundedLane * boundedLane, 1));
+    const start = {
+      x: source.x + unitX * radialDistance + normalX * boundedLane,
+      y: source.y + unitY * radialDistance + normalY * boundedLane,
+    };
+    const end = {
+      x: target.x - unitX * radialDistance + normalX * boundedLane,
+      y: target.y - unitY * radialDistance + normalY * boundedLane,
+    };
+    return {
+      start,
+      control: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+      end,
+      labelSide: 1,
+    };
+  }
+
   function edgeClearance(geometry, edge) {
     let clearance = Number.POSITIVE_INFINITY;
     for (const [nodeId, node] of nodes) {
@@ -435,7 +461,7 @@ export default function(component) {
     return [edge.source, edge.target].sort().join("\u0000");
   }
 
-  function chooseReciprocalSide(edge) {
+  function chooseReciprocalPlan(edge) {
     const source = screenPosition(nodes.get(edge.source));
     const target = screenPosition(nodes.get(edge.target));
     const dx = target.x - source.x;
@@ -443,6 +469,15 @@ export default function(component) {
     const distance = Math.max(Math.hypot(dx, dy), 0.001);
     const normalX = -dy / distance;
     const normalY = dx / distance;
+    const straightGeometry = straightGeometryWithLane(source, target, 12);
+    const reverseGeometry = straightGeometryWithLane(target, source, 12);
+    const reverseEdge = { ...edge, source: edge.target, target: edge.source };
+    if (
+      edgeClearance(straightGeometry, edge) >= NODE_RADIUS + 16
+      && edgeClearance(reverseGeometry, reverseEdge) >= NODE_RADIUS + 16
+    ) {
+      return { curved: false, side: 1 };
+    }
     const directionFactor = edge.source.localeCompare(edge.target) <= 0 ? 1 : -1;
     let bestSide = 1;
     let bestClearance = -1;
@@ -460,10 +495,10 @@ export default function(component) {
         bestClearance = clearance;
       }
     }
-    return bestSide;
+    return { curved: true, side: bestSide };
   }
 
-  function edgeGeometry(edge, reciprocalSide = 1) {
+  function edgeGeometry(edge, reciprocalPlan = { curved: false, side: 1 }) {
     const source = screenPosition(nodes.get(edge.source));
     const target = screenPosition(nodes.get(edge.target));
     const dx = target.x - source.x;
@@ -472,14 +507,17 @@ export default function(component) {
     const normalX = -dy / distance;
     const normalY = dx / distance;
     const directionFactor = edge.source.localeCompare(edge.target) <= 0 ? 1 : -1;
+    if (edge.reciprocal && !reciprocalPlan.curved) {
+      return straightGeometryWithLane(source, target, 12);
+    }
     const reciprocalLane = directionFactor > 0 ? 38 : 68;
     const baseOffset = edge.reciprocal
-      ? reciprocalSide * directionFactor * reciprocalLane
+      ? reciprocalPlan.side * directionFactor * reciprocalLane
       : 0;
     const offsets = [baseOffset];
     for (let extra = 60; extra <= 300; extra += 60) {
       if (edge.reciprocal) {
-        offsets.push(reciprocalSide * directionFactor * (reciprocalLane + extra));
+        offsets.push(reciprocalPlan.side * directionFactor * (reciprocalLane + extra));
       } else {
         offsets.push(extra, -extra);
       }
@@ -493,8 +531,12 @@ export default function(component) {
         bestGeometry = geometry;
         bestClearance = clearance;
       }
-      if (clearance >= NODE_RADIUS + 16) return geometry;
+      if (clearance >= NODE_RADIUS + 16) {
+        geometry.labelSide = edge.reciprocal ? -reciprocalPlan.side : 0;
+        return geometry;
+      }
     }
+    bestGeometry.labelSide = edge.reciprocal ? -reciprocalPlan.side : 0;
     return bestGeometry;
   }
 
@@ -507,7 +549,10 @@ export default function(component) {
       const tangentY = 2 * (1 - t) * (geometry.control.y - geometry.start.y)
         + 2 * t * (geometry.end.y - geometry.control.y);
       const tangentLength = Math.max(Math.hypot(tangentX, tangentY), 0.001);
-      for (const offset of [20, -20, 36, -36, 52, -52]) {
+      const offsets = geometry.labelSide
+        ? [20, 36, 52, 68].map((offset) => offset * geometry.labelSide)
+        : [20, -20, 36, -36, 52, -52];
+      for (const offset of offsets) {
         candidates.push({
           x: point.x - tangentY / tangentLength * offset,
           y: point.y + tangentX / tangentLength * offset,
@@ -539,18 +584,18 @@ export default function(component) {
   function drawEdges() {
     clearLayer(edgesLayer);
     const occupiedLabels = [];
-    const reciprocalSides = new Map();
+    const reciprocalPlans = new Map();
     edges.forEach((edge, index) => {
       if (!nodes.has(edge.source) || !nodes.has(edge.target)) return;
-      let reciprocalSide = 1;
+      let reciprocalPlan = { curved: false, side: 1 };
       if (edge.reciprocal) {
         const pairKey = reciprocalPairKey(edge);
-        if (!reciprocalSides.has(pairKey)) {
-          reciprocalSides.set(pairKey, chooseReciprocalSide(edge));
+        if (!reciprocalPlans.has(pairKey)) {
+          reciprocalPlans.set(pairKey, chooseReciprocalPlan(edge));
         }
-        reciprocalSide = reciprocalSides.get(pairKey);
+        reciprocalPlan = reciprocalPlans.get(pairKey);
       }
-      const geometry = edgeGeometry(edge, reciprocalSide);
+      const geometry = edgeGeometry(edge, reciprocalPlan);
       const color = edge.zero ? "#7A7F87" : edge.color;
       const width = edge.bold ? 5 : 2;
       const group = svgElement("g", {
