@@ -183,7 +183,7 @@ const LABEL_LINE_LENGTH = 11;
 const LABEL_MAX_LINES = 4;
 const MIN_NODE_COORDINATE = -1;
 const MAX_NODE_COORDINATE = 2;
-const MIN_ZOOM = 0.25;
+const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3;
 const FIT_PADDING = 70;
 
