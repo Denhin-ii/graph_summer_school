@@ -32,6 +32,7 @@ GRAPH_COMPONENT_KEY = "draggable_graph"
 LAYOUT_WIDTH = 1000.0
 LAYOUT_HEIGHT = 550.0
 MIN_NODE_CENTER_DISTANCE = 96.0
+MIN_NODE_EDGE_DISTANCE = 82.0
 
 
 def initialize_state() -> None:
@@ -109,7 +110,9 @@ def apply_spring_layout(graph: nx.DiGraph, seed: int = 42) -> None:
     for node_id, point in layout.items():
         graph.nodes[node_id]["x"] = normalize(float(point[0]), x_min, x_max)
         graph.nodes[node_id]["y"] = normalize(float(point[1]), y_min, y_max)
-    separate_close_nodes(graph)
+    for _ in range(6):
+        separate_close_nodes(graph, iterations=40)
+        separate_nodes_from_edges(graph, iterations=40)
 
 
 def separate_close_nodes(
@@ -144,6 +147,57 @@ def separate_close_nodes(
                 graph.nodes[first]["y"] = max(0.04, min(0.96, first_y - unit_y * shift / LAYOUT_HEIGHT))
                 graph.nodes[second]["x"] = max(0.04, min(0.96, second_x + unit_x * shift / LAYOUT_WIDTH))
                 graph.nodes[second]["y"] = max(0.04, min(0.96, second_y + unit_y * shift / LAYOUT_HEIGHT))
+                changed = True
+        if not changed:
+            break
+
+
+def separate_nodes_from_edges(
+    graph: nx.DiGraph,
+    minimum_distance: float = MIN_NODE_EDGE_DISTANCE,
+    iterations: int = 120,
+) -> None:
+    node_ids = list(graph)
+    edges = list(graph.edges)
+    if len(node_ids) < 3 or not edges:
+        return
+    for _ in range(iterations):
+        changed = False
+        for edge_index, (source, target) in enumerate(edges):
+            source_x = float(graph.nodes[source]["x"]) * LAYOUT_WIDTH
+            source_y = float(graph.nodes[source]["y"]) * LAYOUT_HEIGHT
+            target_x = float(graph.nodes[target]["x"]) * LAYOUT_WIDTH
+            target_y = float(graph.nodes[target]["y"]) * LAYOUT_HEIGHT
+            edge_x = target_x - source_x
+            edge_y = target_y - source_y
+            edge_length_squared = edge_x * edge_x + edge_y * edge_y
+            if edge_length_squared < 1e-9:
+                continue
+            for node_index, node_id in enumerate(node_ids):
+                if node_id in (source, target):
+                    continue
+                node_x = float(graph.nodes[node_id]["x"]) * LAYOUT_WIDTH
+                node_y = float(graph.nodes[node_id]["y"]) * LAYOUT_HEIGHT
+                projection = ((node_x - source_x) * edge_x + (node_y - source_y) * edge_y) / edge_length_squared
+                if not 0.05 < projection < 0.95:
+                    continue
+                closest_x = source_x + projection * edge_x
+                closest_y = source_y + projection * edge_y
+                away_x = node_x - closest_x
+                away_y = node_y - closest_y
+                distance = math.hypot(away_x, away_y)
+                if distance >= minimum_distance:
+                    continue
+                if distance < 1e-9:
+                    edge_length = math.sqrt(edge_length_squared)
+                    direction = -1.0 if (edge_index + node_index) % 2 else 1.0
+                    unit_x = -edge_y / edge_length * direction
+                    unit_y = edge_x / edge_length * direction
+                else:
+                    unit_x, unit_y = away_x / distance, away_y / distance
+                shift = minimum_distance - distance + 0.2
+                graph.nodes[node_id]["x"] = max(0.04, min(0.96, (node_x + unit_x * shift) / LAYOUT_WIDTH))
+                graph.nodes[node_id]["y"] = max(0.04, min(0.96, (node_y + unit_y * shift) / LAYOUT_HEIGHT))
                 changed = True
         if not changed:
             break

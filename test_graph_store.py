@@ -9,7 +9,14 @@ from pathlib import Path
 import networkx as nx
 from openpyxl import load_workbook
 
-from app import LAYOUT_HEIGHT, LAYOUT_WIDTH, MIN_NODE_CENTER_DISTANCE, apply_spring_layout
+from app import (
+    LAYOUT_HEIGHT,
+    LAYOUT_WIDTH,
+    MIN_NODE_CENTER_DISTANCE,
+    MIN_NODE_EDGE_DISTANCE,
+    apply_spring_layout,
+    separate_nodes_from_edges,
+)
 from graph_component import apply_position_updates
 from graph_store import (
     GraphWorkbookError,
@@ -23,6 +30,18 @@ from graph_store import (
 
 
 class GraphStoreTests(unittest.TestCase):
+    def test_rebuild_moves_node_away_from_an_edge_and_its_label(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node("A", x=0.1, y=0.5)
+        graph.add_node("B", x=0.5, y=0.5)
+        graph.add_node("C", x=0.9, y=0.5)
+        graph.add_edge("A", "C")
+
+        separate_nodes_from_edges(graph)
+
+        distance = abs(graph.nodes["B"]["y"] - 0.5) * LAYOUT_HEIGHT
+        self.assertGreaterEqual(distance, MIN_NODE_EDGE_DISTANCE - 0.5)
+
     def test_rebuild_separates_disconnected_nodes(self) -> None:
         graph = nx.DiGraph()
         graph.add_nodes_from(f"N{index:03d}" for index in range(1, 9))
