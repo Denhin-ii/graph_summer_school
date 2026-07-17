@@ -168,8 +168,11 @@ class GraphStoreTests(unittest.TestCase):
         try:
             self.assertIn("Названия", workbook.sheetnames)
             rows = list(workbook["Названия"].iter_rows(values_only=True))
-            self.assertEqual(rows[0], ("id", "code", "text"))
-            self.assertEqual(rows[1], ("N001", "P02_I08", "Исполнение бюджета, %"))
+            self.assertEqual(rows[0], ("id", "label", "code", "text"))
+            self.assertEqual(
+                rows[1],
+                ("N001", "Исполнение бюджета, %", "P02_I08", "Исполнение бюджета, %"),
+            )
         finally:
             workbook.close()
 

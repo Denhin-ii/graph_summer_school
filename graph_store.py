@@ -14,10 +14,11 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 NODE_HEADERS = ("id", "label", "x", "y", "color")
 EDGE_HEADERS = ("source", "target", "weight", "bold")
-NAME_HEADERS = ("id", "code", "text")
+NAME_HEADERS = ("id", "label", "code", "text")
+LEGACY_NAME_HEADERS = ("id", "code", "text")
 NODE_COLOR_PALETTE = (
     "#4C78A8",
     "#F58518",
@@ -170,11 +171,18 @@ def load_graph_from_excel(source: str | Path | BinaryIO) -> nx.DiGraph:
 
         if "Названия" in workbook.sheetnames:
             names_ws = workbook["Названия"]
-            _require_headers(names_ws, NAME_HEADERS)
+            actual_name_headers = tuple(names_ws.cell(1, column).value for column in range(1, 5))
+            legacy_names = actual_name_headers[:3] == LEGACY_NAME_HEADERS
+            if not legacy_names:
+                _require_headers(names_ws, NAME_HEADERS)
             seen_name_ids: set[str] = set()
             seen_codes: set[str] = set()
             for row_number, values in enumerate(names_ws.iter_rows(min_row=2, values_only=True), start=2):
-                node_id, code, text = values[:3]
+                if legacy_names:
+                    node_id, code, text = values[:3]
+                    label = None
+                else:
+                    node_id, label, code, text = values[:4]
                 if node_id in (None, ""):
                     continue
                 node_id = str(node_id)
@@ -190,8 +198,12 @@ def load_graph_from_excel(source: str | Path | BinaryIO) -> nx.DiGraph:
                 seen_name_ids.add(node_id)
                 seen_codes.add(normalized_code)
                 graph.nodes[node_id]["code"] = normalized_code
+                if label not in (None, ""):
+                    graph.nodes[node_id]["label"] = str(label).strip()
                 if text not in (None, ""):
-                    graph.nodes[node_id]["label"] = str(text).strip()
+                    graph.nodes[node_id]["text"] = str(text).strip()
+                else:
+                    graph.nodes[node_id]["text"] = str(graph.nodes[node_id]["label"])
 
         for row_number, values in enumerate(edges_ws.iter_rows(min_row=2, values_only=True), start=2):
             source_id, target_id, weight = values[:3]
@@ -253,8 +265,9 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
         names_ws.append(
             [
                 str(node_id),
-                str(attrs.get("code", node_id)),
                 str(attrs.get("label", node_id)),
+                str(attrs.get("code", node_id)),
+                str(attrs.get("text", attrs.get("label", node_id))),
             ]
         )
     for source, target, attrs in graph.edges(data=True):
@@ -294,7 +307,7 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
         widths=(24, 24, 14, 14),
         table_name="CodedEdgesTable",
     )
-    _format_data_sheet(names_ws, widths=(18, 22, 48), table_name="NamesTable")
+    _format_data_sheet(names_ws, widths=(18, 36, 22, 48), table_name="NamesTable")
     _format_data_sheet(
         labeled_edges_ws,
         widths=(36, 36, 14, 14),

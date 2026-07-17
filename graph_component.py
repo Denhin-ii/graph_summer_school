@@ -366,7 +366,8 @@ export default function(component) {
   let lineScale = Number(svg.dataset.lineScale || 1);
   let nodeScale = Number(svg.dataset.nodeScale || 1);
   let nodeSpacing = Number(svg.dataset.nodeSpacing || data.nodeSpacing || 250);
-  let labelMode = svg.dataset.labelMode === "code" ? "code" : "text";
+  const labelModes = ["text", "label", "code"];
+  let labelMode = labelModes.includes(svg.dataset.labelMode) ? svg.dataset.labelMode : "text";
   if (focusedNodeId && !nodes.has(focusedNodeId)) focusedNodeId = null;
 
   function currentNodeRadius() {
@@ -374,13 +375,15 @@ export default function(component) {
   }
 
   function displayedNodeLabel(node) {
-    return labelMode === "code" ? (node.code || node.id) : node.label;
+    if (labelMode === "code") return node.code || node.id;
+    if (labelMode === "label") return node.label || node.id;
+    return node.text || node.label || node.id;
   }
 
   function applyLabelMode() {
-    const showingCodes = labelMode === "code";
-    toggleLabelsButton.textContent = showingCodes ? "Названия: коды" : "Названия: текст";
-    toggleLabelsButton.setAttribute("aria-pressed", String(showingCodes));
+    const modeNames = { text: "текст", label: "label", code: "коды" };
+    toggleLabelsButton.textContent = `Названия: ${modeNames[labelMode]}`;
+    toggleLabelsButton.setAttribute("aria-pressed", String(labelMode !== "text"));
     svg.dataset.labelMode = labelMode;
   }
 
@@ -1008,7 +1011,7 @@ export default function(component) {
     toggleScalesButton.setAttribute("aria-expanded", String(!scalePanel.hidden));
   };
   toggleLabelsButton.onclick = () => {
-    labelMode = labelMode === "text" ? "code" : "text";
+    labelMode = labelModes[(labelModes.indexOf(labelMode) + 1) % labelModes.length];
     applyLabelMode();
     drawNodes();
   };
@@ -1130,6 +1133,7 @@ def render_draggable_graph(
             "id": str(node_id),
             "label": str(attrs.get("label", node_id)),
             "code": str(attrs.get("code", node_id)),
+            "text": str(attrs.get("text", attrs.get("label", node_id))),
             "color": validate_color(attrs.get("color", DEFAULT_NODE_COLOR)),
             "x": float(attrs["x"]),
             "y": float(attrs["y"]),
