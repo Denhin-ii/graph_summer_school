@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import time
+from datetime import datetime
 from pathlib import Path
 
 import networkx as nx
@@ -24,6 +26,8 @@ from graph_store import (
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DATABASE = APP_DIR / "graph_database.xlsx"
+AUTOSAVE_DATABASE = APP_DIR / "graph_autosave.xlsx"
+AUTOSAVE_INTERVAL_SECONDS = 5 * 60
 GRAPH_COMPONENT_KEY = "draggable_graph"
 
 
@@ -39,6 +43,10 @@ def initialize_state() -> None:
         st.session_state.layout_seed = 42
     if "edge_editor_revision" not in st.session_state:
         st.session_state.edge_editor_revision = 0
+    if "last_autosave_monotonic" not in st.session_state:
+        st.session_state.last_autosave_monotonic = time.monotonic()
+    if "last_autosave_at" not in st.session_state:
+        st.session_state.last_autosave_at = None
 
 def next_node_id(graph: nx.DiGraph) -> str:
     while f"N{st.session_state.next_node_id:03d}" in graph:
@@ -110,6 +118,54 @@ def node_option(graph: nx.DiGraph, node_id: str) -> str:
 
 def node_id_from_option(option: str) -> str:
     return option.split(" — ", 1)[0]
+
+
+def component_state_value(name: str) -> object | None:
+    component_state = st.session_state.get(GRAPH_COMPONENT_KEY, {})
+    if hasattr(component_state, "get"):
+        return component_state.get(name)
+    return getattr(component_state, name, None)
+
+
+def sync_selected_node() -> None:
+    graph: nx.DiGraph | None = st.session_state.get("graph")
+    node_id = component_state_value("selected_node")
+    if graph is None or node_id not in graph:
+        return
+    st.session_state.node_editor = node_option(graph, str(node_id))
+    st.session_state.status = f"Выбрана вершина «{graph.nodes[node_id].get('label', node_id)}»."
+
+
+def sync_selected_edge() -> None:
+    graph: nx.DiGraph | None = st.session_state.get("graph")
+    selected = component_state_value("selected_edge")
+    if graph is None or not hasattr(selected, "get"):
+        return
+    source = str(selected.get("source", ""))
+    target = str(selected.get("target", ""))
+    if not graph.has_edge(source, target):
+        return
+    st.session_state.edge_source = node_option(graph, source)
+    st.session_state.edge_target = node_option(graph, target)
+    st.session_state.edge_editor_revision += 1
+    st.session_state.status = f"Выбрана связь {source} → {target}."
+
+
+@st.fragment(run_every=AUTOSAVE_INTERVAL_SECONDS)
+def run_autosave(graph: nx.DiGraph) -> None:
+    now = time.monotonic()
+    if now - st.session_state.last_autosave_monotonic >= AUTOSAVE_INTERVAL_SECONDS:
+        try:
+            save_graph_to_excel(graph, AUTOSAVE_DATABASE)
+        except (OSError, GraphWorkbookError, ValueError) as exc:
+            st.error(f"Не удалось выполнить автосохранение: {exc}")
+        else:
+            st.session_state.last_autosave_monotonic = now
+            st.session_state.last_autosave_at = datetime.now().strftime("%H:%M:%S")
+    if st.session_state.last_autosave_at:
+        st.caption(f"Последнее автосохранение: {st.session_state.last_autosave_at}")
+    else:
+        st.caption("Автосохранение выполняется каждые 5 минут.")
 
 
 def render_sidebar(graph: nx.DiGraph) -> None:
@@ -291,6 +347,23 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                 st.session_state.status = f"Загружено: {DEFAULT_DATABASE.name}."
                 st.rerun()
 
+        if st.button("Восстановить из автосохранения", width="stretch"):
+            if not AUTOSAVE_DATABASE.exists():
+                st.warning("Файл автосохранения ещё не создан.")
+            else:
+                try:
+                    loaded = load_graph_from_excel(AUTOSAVE_DATABASE)
+                except GraphWorkbookError as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state.graph = loaded
+                    reset_next_node_id(loaded)
+                    ensure_positions(loaded)
+                    st.session_state.edge_editor_revision += 1
+                    st.session_state.last_autosave_monotonic = time.monotonic()
+                    st.session_state.status = f"Восстановлено из {AUTOSAVE_DATABASE.name}."
+                    st.rerun()
+
         if st.button("Сохранить в папку проекта", width="stretch"):
             save_graph_to_excel(graph, DEFAULT_DATABASE)
             st.session_state.status = f"Сохранено: {DEFAULT_DATABASE}."
@@ -303,6 +376,7 @@ def render_sidebar(graph: nx.DiGraph) -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
         )
+        run_autosave(graph)
 
 
 @st.dialog("Перестроить граф?")
@@ -338,6 +412,8 @@ def render_main(graph: nx.DiGraph) -> None:
             graph,
             key=GRAPH_COMPONENT_KEY,
             on_positions_change=sync_dragged_positions,
+            on_selected_node_change=sync_selected_node,
+            on_selected_edge_change=sync_selected_edge,
         )
         st.caption(
             "Перетаскивайте вершины мышью · двигайте поле за пустое место · меняйте масштаб колёсиком "
@@ -357,11 +433,7 @@ def render_main(graph: nx.DiGraph) -> None:
 
 
 def sync_dragged_positions() -> None:
-    component_state = st.session_state.get(GRAPH_COMPONENT_KEY, {})
-    if hasattr(component_state, "get"):
-        positions = component_state.get("positions")
-    else:
-        positions = getattr(component_state, "positions", None)
+    positions = component_state_value("positions")
     graph: nx.DiGraph | None = st.session_state.get("graph")
     if graph is not None and apply_position_updates(graph, positions):
         st.session_state.status = "Новое расположение вершин сохранено в текущем графе."

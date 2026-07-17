@@ -129,6 +129,11 @@ GRAPH_EDITOR_CSS = """
   pointer-events: none;
 }
 
+.graph-edge-hit {
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
 .graph-node {
   cursor: grab;
   outline: none;
@@ -257,6 +262,7 @@ export default function(component) {
   const edges = data.edges || [];
   let activeDrag = null;
   let activePan = null;
+  let suppressEdgeClick = false;
   let zoom = Number(svg.dataset.zoom || 1);
   let panX = Number(svg.dataset.panX || 0);
   let panY = Number(svg.dataset.panY || 0);
@@ -308,6 +314,8 @@ export default function(component) {
       startY: point.y,
       initialPanX: panX,
       initialPanY: panY,
+      moved: false,
+      startedOnEdge: Boolean(event.target.closest(".graph-edge")),
     };
     svg.setPointerCapture(event.pointerId);
   }
@@ -351,13 +359,26 @@ export default function(component) {
       const geometry = edgeGeometry(edge);
       const color = edge.zero ? "#7A7F87" : edge.color;
       const width = edge.bold ? 5 : 2;
-      const group = svgElement("g");
+      const group = svgElement("g", {
+        class: "graph-edge",
+        role: "button",
+        tabindex: "0",
+        "aria-label": `Связь ${edge.source} → ${edge.target}`,
+      });
+      const hitPath = svgElement("path", {
+        d: `M ${geometry.start.x},${geometry.start.y} Q ${geometry.control.x},${geometry.control.y} ${geometry.end.x},${geometry.end.y}`,
+        fill: "none",
+        stroke: "transparent",
+        "stroke-width": Math.max(16, width),
+        class: "graph-edge-hit",
+      });
       const path = svgElement("path", {
         d: `M ${geometry.start.x},${geometry.start.y} Q ${geometry.control.x},${geometry.control.y} ${geometry.end.x},${geometry.end.y}`,
         fill: "none",
         stroke: color,
         "stroke-width": width,
       });
+      group.appendChild(hitPath);
       group.appendChild(path);
 
       if (!edge.zero) {
@@ -390,6 +411,18 @@ export default function(component) {
       });
       label.textContent = `${Number(edge.weight) >= 0 ? "+" : ""}${Number(edge.weight).toFixed(2)}`;
       group.appendChild(label);
+      const selectEdge = (event) => {
+        event.stopPropagation();
+        if (suppressEdgeClick) {
+          suppressEdgeClick = false;
+          return;
+        }
+        setStateValue("selected_edge", { source: edge.source, target: edge.target });
+      };
+      group.addEventListener("click", selectEdge);
+      group.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") selectEdge(event);
+      });
       edgesLayer.appendChild(group);
     });
   }
@@ -428,7 +461,15 @@ export default function(component) {
       group.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
         event.preventDefault();
-        activeDrag = { id: node.id, pointerId: event.pointerId, group };
+        const start = localPosition(svg, event);
+        activeDrag = {
+          id: node.id,
+          pointerId: event.pointerId,
+          group,
+          startX: start.x,
+          startY: start.y,
+          moved: false,
+        };
         svg.setPointerCapture(event.pointerId);
         group.style.cursor = "grabbing";
       });
@@ -451,6 +492,9 @@ export default function(component) {
     if (activePan && event.pointerId === activePan.pointerId) {
       event.preventDefault();
       const point = localPosition(svg, event);
+      if (Math.hypot(point.x - activePan.startX, point.y - activePan.startY) > 4) {
+        activePan.moved = true;
+      }
       panX = activePan.initialPanX + point.x - activePan.startX;
       panY = activePan.initialPanY + point.y - activePan.startY;
       applyView();
@@ -458,6 +502,10 @@ export default function(component) {
     }
     if (!activeDrag || event.pointerId !== activeDrag.pointerId) return;
     event.preventDefault();
+    const pointer = localPosition(svg, event);
+    if (Math.hypot(pointer.x - activeDrag.startX, pointer.y - activeDrag.startY) > 4) {
+      activeDrag.moved = true;
+    }
     const position = graphPosition(viewport, event);
     const node = nodes.get(activeDrag.id);
     node.x = position.x;
@@ -469,14 +517,21 @@ export default function(component) {
   function finishDrag(event) {
     if (activePan && event.pointerId === activePan.pointerId) {
       if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+      suppressEdgeClick = activePan.moved && activePan.startedOnEdge;
       activePan = null;
       return;
     }
     if (!activeDrag || event.pointerId !== activeDrag.pointerId) return;
     activeDrag.group.style.cursor = "grab";
+    const selectedNodeId = activeDrag.id;
+    const nodeMoved = activeDrag.moved;
     if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
     activeDrag = null;
-    persistPositions();
+    if (nodeMoved) {
+      persistPositions();
+    } else {
+      setStateValue("selected_node", selectedNodeId);
+    }
   }
 
   applyView();
@@ -559,6 +614,8 @@ def render_draggable_graph(
     *,
     key: str,
     on_positions_change: Callable[[], None],
+    on_selected_node_change: Callable[[], None],
+    on_selected_edge_change: Callable[[], None],
 ) -> None:
     nodes = [
         {
@@ -586,7 +643,9 @@ def render_draggable_graph(
     draggable_graph_component(
         key=key,
         data={"nodes": nodes, "edges": edges},
-        default={"positions": positions},
+        default={"positions": positions, "selected_node": None, "selected_edge": None},
         height=650,
         on_positions_change=on_positions_change,
+        on_selected_node_change=on_selected_node_change,
+        on_selected_edge_change=on_selected_edge_change,
     )
