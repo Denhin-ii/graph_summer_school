@@ -249,6 +249,22 @@ def render_sidebar(graph: nx.DiGraph) -> None:
         )
 
 
+@st.dialog("Перестроить граф?")
+def confirm_graph_rebuild() -> None:
+    st.warning("Текущее расположение вершин будет заменено новым.")
+    confirm_col, cancel_col = st.columns(2)
+    with confirm_col:
+        if st.button("Да, перестроить", type="primary", width="stretch"):
+            graph: nx.DiGraph = st.session_state.graph
+            st.session_state.layout_seed += 1
+            apply_spring_layout(graph, seed=st.session_state.layout_seed)
+            st.session_state.status = "Расположение пересчитано алгоритмом spring_layout."
+            st.rerun()
+    with cancel_col:
+        if st.button("Отмена", width="stretch"):
+            st.rerun()
+
+
 def render_main(graph: nx.DiGraph) -> None:
     title_col, action_col = st.columns([4, 1])
     with title_col:
@@ -256,10 +272,7 @@ def render_main(graph: nx.DiGraph) -> None:
         st.caption("NetworkX · ориентированные связи · вес от −1 до 1, включая 0")
     with action_col:
         if st.button("Перестроить граф", width="stretch"):
-            st.session_state.layout_seed += 1
-            apply_spring_layout(graph, seed=st.session_state.layout_seed)
-            st.session_state.status = "Расположение пересчитано алгоритмом spring_layout."
-            st.rerun()
+            confirm_graph_rebuild()
 
     st.info(st.session_state.status)
     if graph:
