@@ -420,11 +420,15 @@ def render_sidebar(graph: nx.DiGraph) -> None:
                                 reverse_weight,
                                 bold=reverse_bold_arrow,
                             )
+                        if connection_type.startswith("Прямая") and graph.has_edge(target, source):
+                            graph.remove_edge(target, source)
+                        elif connection_type.startswith("Обратная") and graph.has_edge(source, target):
+                            graph.remove_edge(source, target)
                     except GraphWorkbookError as exc:
                         st.error(str(exc))
                     else:
                         st.session_state.edge_editor_revision += 1
-                        st.session_state.status = "Связь добавлена или обновлена."
+                        st.session_state.status = f"Связь обновлена: {connection_type}."
                         st.rerun()
 
         if graph.number_of_edges():
