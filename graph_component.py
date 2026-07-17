@@ -557,7 +557,7 @@ export default function(component) {
       ? offsetMagnitudes.map((offset) => offset * geometry.labelSide)
       : offsetMagnitudes.flatMap((offset) => [offset, -offset]);
     const positionsAlongEdge = [0.5];
-    for (let step = 1; step <= 9; step += 1) {
+    for (let step = 1; step <= 6; step += 1) {
       positionsAlongEdge.push(0.5 - step * 0.05, 0.5 + step * 0.05);
     }
     for (const offset of offsets) {
