@@ -2,6 +2,14 @@
 setlocal
 cd /d "%~dp0"
 
+PowerShell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8501/_stcore/health' -TimeoutSec 2; if ($response.StatusCode -eq 200) { exit 0 } } catch { }; exit 1" >nul 2>&1
+if not errorlevel 1 (
+    echo Graph editor is already running at http://127.0.0.1:8501
+    echo The existing browser tab can be used.
+    timeout /t 2 >nul
+    exit /b 0
+)
+
 set "BOOTSTRAP_PYTHON=%LocalAppData%\Programs\Python\Python313\python.exe"
 if not exist "%BOOTSTRAP_PYTHON%" set "BOOTSTRAP_PYTHON=python"
 
@@ -27,7 +35,7 @@ if errorlevel 1 (
     if errorlevel 1 goto :error
 )
 
-".venv\Scripts\python.exe" -m streamlit run app.py --server.address=127.0.0.1 --server.enableCORS=true --server.enableXsrfProtection=true
+".venv\Scripts\python.exe" -m streamlit run app.py --server.address=127.0.0.1 --server.port=8501 --server.enableCORS=true --server.enableXsrfProtection=true
 if errorlevel 1 goto :error
 exit /b 0
 

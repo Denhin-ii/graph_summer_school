@@ -551,11 +551,15 @@ export default function(component) {
 
   function edgeLabelPosition(geometry, occupiedLabels, allGeometries) {
     const candidates = [];
+    const offsetMagnitudes = [18, 24, 30, 36, 48, 60, 72, 88, 104, 120, 140, 160];
+    for (let index = 0; index <= occupiedLabels.length; index += 1) {
+      offsetMagnitudes.push(200 + index * 76);
+    }
     const offsets = geometry.labelSide
-      ? [18, 24, 30, 36, 48, 60, 72, 88, 104, 120].map((offset) => offset * geometry.labelSide)
-      : [18, -18, 24, -24, 30, -30, 36, -36, 48, -48, 60, -60, 72, -72, 88, -88];
+      ? offsetMagnitudes.map((offset) => offset * geometry.labelSide)
+      : offsetMagnitudes.flatMap((offset) => [offset, -offset]);
     const positionsAlongEdge = [0.5];
-    for (let step = 1; step <= 8; step += 1) {
+    for (let step = 1; step <= 9; step += 1) {
       positionsAlongEdge.push(0.5 - step * 0.05, 0.5 + step * 0.05);
     }
     for (const offset of offsets) {
@@ -573,7 +577,7 @@ export default function(component) {
       }
     }
     let best = candidates[0];
-    let bestClearance = -1;
+    let bestClearance = Number.NEGATIVE_INFINITY;
     for (const candidate of candidates) {
       const nodeClearance = Math.min(
         ...Array.from(nodes.values(), (node) => {
@@ -584,6 +588,7 @@ export default function(component) {
       const labelClearance = occupiedLabels.length
         ? Math.min(...occupiedLabels.map((label) => Math.hypot(candidate.x - label.x, candidate.y - label.y)))
         : Number.POSITIVE_INFINITY;
+      if (labelClearance < 72) continue;
       const edgeClearance = Math.min(
         ...allGeometries
           .filter((otherGeometry) => otherGeometry !== geometry)
@@ -592,10 +597,8 @@ export default function(component) {
       );
       const ownEdgeDistance = distanceToGeometry(candidate, geometry);
       const associationMargin = edgeClearance - ownEdgeDistance;
-      const labelSeparation = labelClearance - 72;
       const clearance = Math.min(
         nodeClearance,
-        labelSeparation * 2,
         edgeClearance - 26,
         associationMargin - 12,
       );
