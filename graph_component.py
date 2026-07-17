@@ -24,6 +24,7 @@ GRAPH_EDITOR_HTML = """
     <button type="button" class="graph-reset-view" title="Показать весь граф">Весь граф</button>
     <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
             aria-pressed="true">Сетка: вкл.</button>
+    <button type="button" class="graph-toggle-fullscreen" title="Открыть граф на весь экран">На весь экран</button>
   </div>
   <svg class="graph-editor-canvas" viewBox="0 0 1100 650" role="application"
        aria-label="Интерактивный редактор расположения вершин графа">
@@ -54,6 +55,13 @@ GRAPH_EDITOR_CSS = """
 
 .graph-editor-root.graph-grid-hidden {
   background-image: none;
+}
+
+.graph-editor-root:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
 }
 
 .graph-controls {
@@ -175,7 +183,7 @@ const LABEL_LINE_LENGTH = 11;
 const LABEL_MAX_LINES = 4;
 const MIN_NODE_COORDINATE = -1;
 const MAX_NODE_COORDINATE = 2;
-const MIN_ZOOM = 0.2;
+const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
 const FIT_PADDING = 70;
 
@@ -258,6 +266,7 @@ export default function(component) {
   const zoomInButton = parentElement.querySelector(".graph-zoom-in");
   const resetViewButton = parentElement.querySelector(".graph-reset-view");
   const toggleGridButton = parentElement.querySelector(".graph-toggle-grid");
+  const toggleFullscreenButton = parentElement.querySelector(".graph-toggle-fullscreen");
   const zoomValue = parentElement.querySelector(".graph-zoom-value");
   const nodes = new Map(
     (data.nodes || []).map((node) => [node.id, { ...node, x: Number(node.x), y: Number(node.y) }])
@@ -276,6 +285,29 @@ export default function(component) {
     toggleGridButton.textContent = gridVisible ? "Сетка: вкл." : "Сетка: выкл.";
     toggleGridButton.setAttribute("aria-pressed", String(gridVisible));
     svg.dataset.gridVisible = String(gridVisible);
+  }
+
+  function getFullscreenElement() {
+    const rootNode = root.getRootNode();
+    return rootNode.fullscreenElement || document.fullscreenElement;
+  }
+
+  function updateFullscreenButton() {
+    const fullscreen = getFullscreenElement() === root;
+    toggleFullscreenButton.textContent = fullscreen ? "Выйти из полного экрана" : "На весь экран";
+    toggleFullscreenButton.title = fullscreen ? "Выйти из полноэкранного режима" : "Открыть граф на весь экран";
+  }
+
+  async function toggleFullscreen() {
+    try {
+      if (getFullscreenElement() === root) {
+        await document.exitFullscreen();
+      } else {
+        await root.requestFullscreen();
+      }
+    } catch (error) {
+      console.warn("Не удалось изменить полноэкранный режим", error);
+    }
   }
 
   function applyView() {
@@ -567,6 +599,7 @@ export default function(component) {
 
   applyView();
   applyGridVisibility();
+  updateFullscreenButton();
   drawEdges();
   drawNodes();
   svg.addEventListener("pointerdown", startPan);
@@ -581,6 +614,8 @@ export default function(component) {
     gridVisible = !gridVisible;
     applyGridVisibility();
   };
+  toggleFullscreenButton.onclick = toggleFullscreen;
+  document.addEventListener("fullscreenchange", updateFullscreenButton);
 
   return () => {
     svg.removeEventListener("pointerdown", startPan);
@@ -592,6 +627,8 @@ export default function(component) {
     zoomInButton.onclick = null;
     resetViewButton.onclick = null;
     toggleGridButton.onclick = null;
+    toggleFullscreenButton.onclick = null;
+    document.removeEventListener("fullscreenchange", updateFullscreenButton);
   };
 }
 """
