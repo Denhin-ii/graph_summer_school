@@ -24,6 +24,8 @@ GRAPH_EDITOR_HTML = """
     <button type="button" class="graph-reset-view" title="Показать весь граф">Весь граф</button>
     <button type="button" class="graph-toggle-scales" title="Настроить размеры элементов"
             aria-expanded="false">Масштабы</button>
+    <button type="button" class="graph-toggle-labels" title="Переключить текстовые названия и коды"
+            aria-pressed="false">Названия: текст</button>
     <button type="button" class="graph-toggle-focus" title="Показывать связи только выбранной вершины"
             aria-pressed="false">Связи вершины: выкл.</button>
     <button type="button" class="graph-toggle-grid" title="Включить или отключить сетку"
@@ -332,6 +334,7 @@ export default function(component) {
   const zoomInButton = parentElement.querySelector(".graph-zoom-in");
   const resetViewButton = parentElement.querySelector(".graph-reset-view");
   const toggleScalesButton = parentElement.querySelector(".graph-toggle-scales");
+  const toggleLabelsButton = parentElement.querySelector(".graph-toggle-labels");
   const scalePanel = parentElement.querySelector(".graph-scale-panel");
   const nodeTextScaleInput = parentElement.querySelector(".graph-node-text-scale");
   const edgeTextScaleInput = parentElement.querySelector(".graph-edge-text-scale");
@@ -363,10 +366,22 @@ export default function(component) {
   let lineScale = Number(svg.dataset.lineScale || 1);
   let nodeScale = Number(svg.dataset.nodeScale || 1);
   let nodeSpacing = Number(svg.dataset.nodeSpacing || data.nodeSpacing || 250);
+  let labelMode = svg.dataset.labelMode === "code" ? "code" : "text";
   if (focusedNodeId && !nodes.has(focusedNodeId)) focusedNodeId = null;
 
   function currentNodeRadius() {
     return NODE_RADIUS * nodeScale;
+  }
+
+  function displayedNodeLabel(node) {
+    return labelMode === "code" ? (node.code || node.id) : node.label;
+  }
+
+  function applyLabelMode() {
+    const showingCodes = labelMode === "code";
+    toggleLabelsButton.textContent = showingCodes ? "Названия: коды" : "Названия: текст";
+    toggleLabelsButton.setAttribute("aria-pressed", String(showingCodes));
+    svg.dataset.labelMode = labelMode;
   }
 
   function scalePercent(value) {
@@ -857,18 +872,19 @@ export default function(component) {
   function drawNodes() {
     clearLayer(nodesLayer);
     for (const node of nodes.values()) {
+      const displayedLabel = displayedNodeLabel(node);
       const group = svgElement("g", {
         class: "graph-node",
         tabindex: "0",
         role: "button",
-        "aria-label": `${node.label}. Перетащите вершину мышью.`,
+        "aria-label": `${displayedLabel}. Перетащите вершину мышью.`,
         "data-node-id": node.id,
       });
       group.appendChild(svgElement("circle", { r: currentNodeRadius(), fill: node.color }));
       const title = svgElement("title");
-      title.textContent = `${node.label} (${node.id})`;
+      title.textContent = `${node.label} · ${node.code || node.id} (${node.id})`;
       group.appendChild(title);
-      const lines = labelLines(node.label);
+      const lines = labelLines(displayedLabel);
       const text = svgElement("text", {
         fill: contrastColor(node.color),
         style: `font-size: ${11 * nodeTextScale}px`,
@@ -975,6 +991,7 @@ export default function(component) {
   applyGridVisibility();
   applyFocusMode();
   applyScaleSettings();
+  applyLabelMode();
   updateFullscreenButton();
   drawEdges();
   drawNodes();
@@ -989,6 +1006,11 @@ export default function(component) {
   toggleScalesButton.onclick = () => {
     scalePanel.hidden = !scalePanel.hidden;
     toggleScalesButton.setAttribute("aria-expanded", String(!scalePanel.hidden));
+  };
+  toggleLabelsButton.onclick = () => {
+    labelMode = labelMode === "text" ? "code" : "text";
+    applyLabelMode();
+    drawNodes();
   };
   nodeTextScaleInput.oninput = () => {
     nodeTextScale = Number(nodeTextScaleInput.value);
@@ -1037,6 +1059,7 @@ export default function(component) {
     zoomInButton.onclick = null;
     resetViewButton.onclick = null;
     toggleScalesButton.onclick = null;
+    toggleLabelsButton.onclick = null;
     nodeTextScaleInput.oninput = null;
     edgeTextScaleInput.oninput = null;
     lineScaleInput.oninput = null;
@@ -1106,6 +1129,7 @@ def render_draggable_graph(
         {
             "id": str(node_id),
             "label": str(attrs.get("label", node_id)),
+            "code": str(attrs.get("code", node_id)),
             "color": validate_color(attrs.get("color", DEFAULT_NODE_COLOR)),
             "x": float(attrs["x"]),
             "y": float(attrs["y"]),

@@ -92,6 +92,7 @@ def add_node(graph: nx.DiGraph, label: str, color: str = DEFAULT_NODE_COLOR) -> 
     graph.add_node(
         node_id,
         label=label.strip(),
+        code=node_id,
         color=validate_color(color),
         x=0.5 + 0.32 * math.cos(angle),
         y=0.5 + 0.32 * math.sin(angle),

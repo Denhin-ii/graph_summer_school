@@ -97,6 +97,7 @@ class GraphStoreTests(unittest.TestCase):
         graph.add_node("N001", label="Ремонт дорог", x=1.2, y=-0.3)
         graph.add_node("N002", label="Аварийность", x=0.8, y=0.7)
         graph.add_node("N003", label="Мобильность", x=0.5, y=0.1)
+        graph.nodes["N001"]["code"] = "P02_I08"
         add_connection(
             graph,
             "N001",
@@ -124,6 +125,7 @@ class GraphStoreTests(unittest.TestCase):
         self.assertEqual(restored["N003"]["N001"]["weight"], 0.0)
         self.assertAlmostEqual(restored.nodes["N001"]["x"], 1.2)
         self.assertAlmostEqual(restored.nodes["N001"]["y"], -0.3)
+        self.assertEqual(restored.nodes["N001"]["code"], "P02_I08")
         self.assertAlmostEqual(restored.graph["view_zoom"], 0.72)
         self.assertAlmostEqual(restored.graph["view_pan_x"], 135.0)
         self.assertAlmostEqual(restored.graph["view_pan_y"], -48.0)
@@ -139,8 +141,8 @@ class GraphStoreTests(unittest.TestCase):
 
     def test_excel_contains_edges_with_node_labels(self) -> None:
         graph = nx.DiGraph()
-        graph.add_node("N001", label="Причина")
-        graph.add_node("N002", label="Следствие")
+        graph.add_node("N001", code="P02_I08", label="Причина")
+        graph.add_node("N002", code="P02_I09", label="Следствие")
         graph.add_edge("N001", "N002", weight=-0.4, bold=True)
 
         workbook = load_workbook(BytesIO(graph_to_excel_bytes(graph)), data_only=True)
@@ -148,6 +150,26 @@ class GraphStoreTests(unittest.TestCase):
             self.assertIn("Связи по названиям", workbook.sheetnames)
             row = list(workbook["Связи по названиям"].iter_rows(min_row=2, values_only=True))[0]
             self.assertEqual(row, ("Причина", "Следствие", -0.4, True))
+            self.assertIn("Связи по кодам", workbook.sheetnames)
+            coded_row = list(workbook["Связи по кодам"].iter_rows(min_row=2, values_only=True))[0]
+            self.assertEqual(coded_row, ("P02_I08", "P02_I09", -0.4, True))
+        finally:
+            workbook.close()
+
+    def test_excel_contains_name_switching_sheet(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node(
+            "N001",
+            code="P02_I08",
+            label="Исполнение бюджета, %",
+        )
+
+        workbook = load_workbook(BytesIO(graph_to_excel_bytes(graph)), data_only=True)
+        try:
+            self.assertIn("Названия", workbook.sheetnames)
+            rows = list(workbook["Названия"].iter_rows(values_only=True))
+            self.assertEqual(rows[0], ("id", "code", "text"))
+            self.assertEqual(rows[1], ("N001", "P02_I08", "Исполнение бюджета, %"))
         finally:
             workbook.close()
 

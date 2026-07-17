@@ -14,9 +14,10 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 NODE_HEADERS = ("id", "label", "x", "y", "color")
 EDGE_HEADERS = ("source", "target", "weight", "bold")
+NAME_HEADERS = ("id", "code", "text")
 NODE_COLOR_PALETTE = (
     "#4C78A8",
     "#F58518",
@@ -164,7 +165,33 @@ def load_graph_from_excel(source: str | Path | BinaryIO) -> nx.DiGraph:
                 x=_coordinate(x, row_number, "x"),
                 y=_coordinate(y, row_number, "y"),
                 color=validate_color(color_value, default=default_color),
+                code=node_id,
             )
+
+        if "Названия" in workbook.sheetnames:
+            names_ws = workbook["Названия"]
+            _require_headers(names_ws, NAME_HEADERS)
+            seen_name_ids: set[str] = set()
+            seen_codes: set[str] = set()
+            for row_number, values in enumerate(names_ws.iter_rows(min_row=2, values_only=True), start=2):
+                node_id, code, text = values[:3]
+                if node_id in (None, ""):
+                    continue
+                node_id = str(node_id)
+                if node_id not in graph:
+                    raise GraphWorkbookError(
+                        f"Строка {row_number} листа «Названия» ссылается на отсутствующую вершину."
+                    )
+                if node_id in seen_name_ids:
+                    raise GraphWorkbookError(f"Повторяющийся id в листе «Названия»: {node_id}")
+                normalized_code = str(code).strip() if code not in (None, "") else node_id
+                if normalized_code in seen_codes:
+                    raise GraphWorkbookError(f"Повторяющийся code в листе «Названия»: {normalized_code}")
+                seen_name_ids.add(node_id)
+                seen_codes.add(normalized_code)
+                graph.nodes[node_id]["code"] = normalized_code
+                if text not in (None, ""):
+                    graph.nodes[node_id]["label"] = str(text).strip()
 
         for row_number, values in enumerate(edges_ws.iter_rows(min_row=2, values_only=True), start=2):
             source_id, target_id, weight = values[:3]
@@ -201,7 +228,9 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
     nodes_ws = workbook.active
     nodes_ws.title = "Вершины"
     edges_ws = workbook.create_sheet("Связи")
+    coded_edges_ws = workbook.create_sheet("Связи по кодам")
     labeled_edges_ws = workbook.create_sheet("Связи по названиям")
+    names_ws = workbook.create_sheet("Названия")
     settings_ws = workbook.create_sheet("Настройки")
 
     nodes_ws.append(NODE_HEADERS)
@@ -217,11 +246,29 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
         )
 
     edges_ws.append(EDGE_HEADERS)
+    coded_edges_ws.append(EDGE_HEADERS)
     labeled_edges_ws.append(EDGE_HEADERS)
+    names_ws.append(NAME_HEADERS)
+    for node_id, attrs in graph.nodes(data=True):
+        names_ws.append(
+            [
+                str(node_id),
+                str(attrs.get("code", node_id)),
+                str(attrs.get("label", node_id)),
+            ]
+        )
     for source, target, attrs in graph.edges(data=True):
         weight = validate_weight(attrs.get("weight", 0.0))
         bold = validate_bold(attrs.get("bold", False))
         edges_ws.append([str(source), str(target), weight, bold])
+        coded_edges_ws.append(
+            [
+                str(graph.nodes[source].get("code", source)),
+                str(graph.nodes[target].get("code", target)),
+                weight,
+                bold,
+            ]
+        )
         labeled_edges_ws.append(
             [
                 str(graph.nodes[source].get("label", source)),
@@ -243,15 +290,21 @@ def _build_workbook(graph: nx.DiGraph) -> Workbook:
     _format_data_sheet(nodes_ws, widths=(18, 36, 14, 14, 14), table_name="NodesTable")
     _format_data_sheet(edges_ws, widths=(18, 18, 14, 14), table_name="EdgesTable")
     _format_data_sheet(
+        coded_edges_ws,
+        widths=(24, 24, 14, 14),
+        table_name="CodedEdgesTable",
+    )
+    _format_data_sheet(names_ws, widths=(18, 22, 48), table_name="NamesTable")
+    _format_data_sheet(
         labeled_edges_ws,
         widths=(36, 36, 14, 14),
         table_name="LabeledEdgesTable",
     )
     _format_data_sheet(settings_ws, widths=(22, 38), table_name="SettingsTable")
-    for ws in (edges_ws, labeled_edges_ws):
+    for ws in (edges_ws, coded_edges_ws, labeled_edges_ws):
         for row in ws.iter_rows(min_row=2, min_col=3, max_col=3):
             row[0].number_format = "0.000"
-    for ws in (nodes_ws, edges_ws, labeled_edges_ws, settings_ws):
+    for ws in (nodes_ws, edges_ws, coded_edges_ws, labeled_edges_ws, names_ws, settings_ws):
         ws.sheet_view.showGridLines = False
     return workbook
 
