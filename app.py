@@ -47,6 +47,10 @@ def initialize_state() -> None:
         st.session_state.layout_seed = 42
     if "edge_editor_revision" not in st.session_state:
         st.session_state.edge_editor_revision = 0
+    if "quick_edge_selection" not in st.session_state:
+        st.session_state.quick_edge_selection = False
+    if "quick_edge_source" not in st.session_state:
+        st.session_state.quick_edge_source = None
     if "last_autosave_monotonic" not in st.session_state:
         st.session_state.last_autosave_monotonic = time.monotonic()
     if "last_autosave_at" not in st.session_state:
@@ -231,8 +235,25 @@ def component_state_value(name: str) -> object | None:
 
 def sync_selected_node() -> None:
     graph: nx.DiGraph | None = st.session_state.get("graph")
-    node_id = component_state_value("selected_node")
+    selected = component_state_value("selected_node")
+    node_id = selected.get("id") if hasattr(selected, "get") else selected
     if graph is None or node_id not in graph:
+        return
+    node_id = str(node_id)
+    if st.session_state.get("quick_edge_selection"):
+        source = st.session_state.get("quick_edge_source")
+        if source is None:
+            st.session_state.quick_edge_source = node_id
+            st.session_state.status = f"Первая вершина связи выбрана: {node_option(graph, node_id)}. Выберите вторую."
+        elif source == node_id:
+            st.session_state.status = "Выберите другую вершину для связи."
+        else:
+            st.session_state.edge_source = node_option(graph, str(source))
+            st.session_state.edge_target = node_option(graph, node_id)
+            st.session_state.edge_editor_revision += 1
+            st.session_state.quick_edge_selection = False
+            st.session_state.quick_edge_source = None
+            st.session_state.status = f"Вершины связи выбраны: {source} → {node_id}."
         return
     st.session_state.node_editor = node_option(graph, str(node_id))
     st.session_state.status = f"Выбрана вершина «{graph.nodes[node_id].get('label', node_id)}»."
@@ -262,6 +283,17 @@ def swap_edge_nodes() -> None:
     st.session_state.edge_source = target
     st.session_state.edge_target = source
     st.session_state.edge_editor_revision += 1
+
+
+def toggle_quick_edge_selection() -> None:
+    active = not st.session_state.get("quick_edge_selection", False)
+    st.session_state.quick_edge_selection = active
+    st.session_state.quick_edge_source = None
+    st.session_state.status = (
+        "Выберите на графе первую вершину связи."
+        if active
+        else "Быстрый выбор вершин отменён."
+    )
 
 
 @st.fragment(run_every=AUTOSAVE_INTERVAL_SECONDS)
@@ -337,6 +369,20 @@ def render_sidebar(graph: nx.DiGraph) -> None:
         if len(graph) < 2:
             st.caption("Для связи нужны минимум две вершины.")
         else:
+            quick_selection_active = st.session_state.quick_edge_selection
+            st.button(
+                "Отменить выбор вершин" if quick_selection_active else "Выбрать 2 вершины на графе",
+                width="stretch",
+                key="toggle_quick_edge_selection",
+                on_click=toggle_quick_edge_selection,
+                type="primary" if quick_selection_active else "secondary",
+            )
+            if quick_selection_active:
+                quick_source = st.session_state.quick_edge_source
+                if quick_source in graph:
+                    st.info(f"Первая: {node_option(graph, quick_source)}. Теперь выберите вторую вершину.")
+                else:
+                    st.info("Нажмите первую вершину на графе.")
             options = [node_option(graph, node) for node in graph]
             source_option = st.selectbox("Из вершины", options, index=0, key="edge_source")
             source = node_id_from_option(source_option)

@@ -810,7 +810,7 @@ export default function(component) {
     if (nodeMoved) {
       persistPositions();
     } else {
-      setStateValue("selected_node", selectedNodeId);
+      setStateValue("selected_node", { id: selectedNodeId, clickedAt: Date.now() });
     }
   }
 
