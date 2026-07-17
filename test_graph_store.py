@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import math
 from io import BytesIO
 from pathlib import Path
 
 import networkx as nx
 from openpyxl import load_workbook
 
+from app import LAYOUT_HEIGHT, LAYOUT_WIDTH, MIN_NODE_CENTER_DISTANCE, apply_spring_layout
 from graph_component import apply_position_updates
 from graph_store import (
     GraphWorkbookError,
@@ -21,6 +23,19 @@ from graph_store import (
 
 
 class GraphStoreTests(unittest.TestCase):
+    def test_rebuild_separates_disconnected_nodes(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_nodes_from(f"N{index:03d}" for index in range(1, 9))
+
+        apply_spring_layout(graph)
+
+        nodes = list(graph)
+        for first_index, first in enumerate(nodes):
+            for second in nodes[first_index + 1 :]:
+                dx = (graph.nodes[second]["x"] - graph.nodes[first]["x"]) * LAYOUT_WIDTH
+                dy = (graph.nodes[second]["y"] - graph.nodes[first]["y"]) * LAYOUT_HEIGHT
+                self.assertGreaterEqual(math.hypot(dx, dy), MIN_NODE_CENTER_DISTANCE - 0.5)
+
     def test_excel_round_trip_preserves_nodes_edges_positions_and_zero(self) -> None:
         graph = nx.DiGraph()
         graph.add_node("N001", label="Ремонт дорог", x=1.2, y=-0.3)

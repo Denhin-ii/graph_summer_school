@@ -29,6 +29,9 @@ DEFAULT_DATABASE = APP_DIR / "graph_database.xlsx"
 AUTOSAVE_DATABASE = APP_DIR / "graph_autosave.xlsx"
 AUTOSAVE_INTERVAL_SECONDS = 5 * 60
 GRAPH_COMPONENT_KEY = "draggable_graph"
+LAYOUT_WIDTH = 1000.0
+LAYOUT_HEIGHT = 550.0
+MIN_NODE_CENTER_DISTANCE = 96.0
 
 
 def initialize_state() -> None:
@@ -91,7 +94,14 @@ def apply_spring_layout(graph: nx.DiGraph, seed: int = 42) -> None:
         node = next(iter(graph))
         graph.nodes[node]["x"] = graph.nodes[node]["y"] = 0.5
         return
-    layout = nx.spring_layout(graph, seed=seed, weight=None)
+    ideal_distance = max(0.25, 1.0 / math.sqrt(len(graph)))
+    layout = nx.spring_layout(
+        graph,
+        seed=seed,
+        weight=None,
+        k=ideal_distance,
+        iterations=200,
+    )
     xs = [float(point[0]) for point in layout.values()]
     ys = [float(point[1]) for point in layout.values()]
     x_min, x_max = min(xs), max(xs)
@@ -99,6 +109,44 @@ def apply_spring_layout(graph: nx.DiGraph, seed: int = 42) -> None:
     for node_id, point in layout.items():
         graph.nodes[node_id]["x"] = normalize(float(point[0]), x_min, x_max)
         graph.nodes[node_id]["y"] = normalize(float(point[1]), y_min, y_max)
+    separate_close_nodes(graph)
+
+
+def separate_close_nodes(
+    graph: nx.DiGraph,
+    minimum_distance: float = MIN_NODE_CENTER_DISTANCE,
+    iterations: int = 200,
+) -> None:
+    node_ids = list(graph)
+    if len(node_ids) < 2:
+        return
+    for _ in range(iterations):
+        changed = False
+        for first_index, first in enumerate(node_ids):
+            for second_index in range(first_index + 1, len(node_ids)):
+                second = node_ids[second_index]
+                first_x = float(graph.nodes[first]["x"])
+                first_y = float(graph.nodes[first]["y"])
+                second_x = float(graph.nodes[second]["x"])
+                second_y = float(graph.nodes[second]["y"])
+                dx = (second_x - first_x) * LAYOUT_WIDTH
+                dy = (second_y - first_y) * LAYOUT_HEIGHT
+                distance = math.hypot(dx, dy)
+                if distance >= minimum_distance:
+                    continue
+                if distance < 1e-9:
+                    angle = (first_index * len(node_ids) + second_index) * 2.399963
+                    unit_x, unit_y = math.cos(angle), math.sin(angle)
+                else:
+                    unit_x, unit_y = dx / distance, dy / distance
+                shift = (minimum_distance - distance) / 2 + 0.1
+                graph.nodes[first]["x"] = max(0.04, min(0.96, first_x - unit_x * shift / LAYOUT_WIDTH))
+                graph.nodes[first]["y"] = max(0.04, min(0.96, first_y - unit_y * shift / LAYOUT_HEIGHT))
+                graph.nodes[second]["x"] = max(0.04, min(0.96, second_x + unit_x * shift / LAYOUT_WIDTH))
+                graph.nodes[second]["y"] = max(0.04, min(0.96, second_y + unit_y * shift / LAYOUT_HEIGHT))
+                changed = True
+        if not changed:
+            break
 
 
 def ensure_positions(graph: nx.DiGraph) -> None:
