@@ -552,9 +552,12 @@ export default function(component) {
   function edgeLabelPosition(geometry, occupiedLabels, allGeometries) {
     const candidates = [];
     const offsets = geometry.labelSide
-      ? [18, 24, 30, 36, 48, 60].map((offset) => offset * geometry.labelSide)
-      : [18, -18, 24, -24, 30, -30, 36, -36, 48, -48, 60, -60];
-    const positionsAlongEdge = [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7, 0.25, 0.75];
+      ? [18, 24, 30, 36, 48, 60, 72, 88, 104, 120].map((offset) => offset * geometry.labelSide)
+      : [18, -18, 24, -24, 30, -30, 36, -36, 48, -48, 60, -60, 72, -72, 88, -88];
+    const positionsAlongEdge = [0.5];
+    for (let step = 1; step <= 8; step += 1) {
+      positionsAlongEdge.push(0.5 - step * 0.05, 0.5 + step * 0.05);
+    }
     for (const offset of offsets) {
       for (const t of positionsAlongEdge) {
         const point = quadraticPoint(geometry.start, geometry.control, geometry.end, t);
@@ -589,9 +592,10 @@ export default function(component) {
       );
       const ownEdgeDistance = distanceToGeometry(candidate, geometry);
       const associationMargin = edgeClearance - ownEdgeDistance;
+      const labelSeparation = labelClearance - 72;
       const clearance = Math.min(
         nodeClearance,
-        labelClearance - 64,
+        labelSeparation * 2,
         edgeClearance - 26,
         associationMargin - 12,
       );
@@ -601,7 +605,7 @@ export default function(component) {
       }
       if (
         nodeClearance >= 24
-        && labelClearance >= 64
+        && labelClearance >= 72
         && edgeClearance >= 26
         && associationMargin >= 12
       ) return candidate;
