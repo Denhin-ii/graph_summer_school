@@ -337,11 +337,14 @@ export default function(component) {
       applyView();
       return;
     }
-    const points = Array.from(nodes.values(), screenPosition);
-    const minX = Math.min(...points.map((point) => point.x)) - NODE_RADIUS;
-    const maxX = Math.max(...points.map((point) => point.x)) + NODE_RADIUS;
-    const minY = Math.min(...points.map((point) => point.y)) - NODE_RADIUS;
-    const maxY = Math.max(...points.map((point) => point.y)) + NODE_RADIUS;
+    // SVG getBBox учитывает не только центры вершин, но также их окружности,
+    // изогнутые стрелки и вынесенные подписи весов.
+    const bounds = viewport.getBBox();
+    const contentPadding = 12;
+    const minX = bounds.x - contentPadding;
+    const maxX = bounds.x + bounds.width + contentPadding;
+    const minY = bounds.y - contentPadding;
+    const maxY = bounds.y + bounds.height + contentPadding;
     const contentWidth = Math.max(maxX - minX, 1);
     const contentHeight = Math.max(maxY - minY, 1);
     zoom = Math.max(
